@@ -142,14 +142,18 @@ view model =
                                 , onClick Login
                                 ]
                                 [ text "Login" ]
-                        Just profile ->
-                            profileElement profile
+                        _ -> empty
                     ]
                 ]
             ]
         , div [ class("container") ]
             [ div [ class("row") ]
-                [ div [ class("col mx-auto") ]
+                [ div []
+                    [ model.profile
+                        |> Maybe.andThen (profileElement >> Just)
+                        |> Maybe.withDefault empty
+                    ]
+                , div [ class("col mx-auto") ]
                     [ case cells of
                         Just cells_ ->
                             boardElement Place playerToken cells_
