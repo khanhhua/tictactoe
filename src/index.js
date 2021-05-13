@@ -42,8 +42,8 @@ app.ports.fbUpdateCells.subscribe(async (cellString) => {
     }
 });
 
-firebase.database().ref('cells').on('value', (snapshot) => {
-    const cells = snapshot.val();
-    console.log({ cells });
-    app.ports.fbCellsUpdated.send(cells);
+firebase.database().ref().on('value', (snapshot) => {
+    const game = snapshot.val();
+    console.log({ game });
+    app.ports.fbGameUpdated.send(game);
 });

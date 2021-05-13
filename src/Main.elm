@@ -3,16 +3,17 @@ port module Main exposing (main)
 import Browser exposing (Document)
 import Json.Decode as D exposing (Decoder, Error, Value)
 import Dict exposing (Dict)
-import Elements exposing (boardElement, profileElement)
+import Elements exposing (boardElement, empty, profileElement)
 import Html exposing (Html, button, div, h1, p, span, text)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
-import Models exposing (Profile, decodeCells, decodeProfile)
+import Models exposing (Game, Profile, decodeCells, decodeGame, decodeProfile)
 
 port fbLogin : () -> Cmd msg
 port fbUpdateCells : String -> Cmd msg
 port fbProfile : (Value -> msg) -> Sub msg
 port fbCellsUpdated : (Value -> msg) -> Sub msg
+port fbGameUpdated : (Value -> msg) -> Sub msg
 
 
 main : Program () Model Msg
@@ -30,8 +31,7 @@ type alias Player =
 type alias Model =
     { profile : Maybe Profile
     , busy : Bool
-    , players : Dict String Player
-    , cells : List String
+    , game : Maybe Game
     }
 
 type Msg
@@ -40,6 +40,7 @@ type Msg
     | LoginComplete (Result Error Profile)
     | Place Int Int
     | CellsUpdated (Result Error (List String))
+    | GameUpdated (Result Error Game)
 
 playerToken : String -> Html msg
 playerToken name =
@@ -49,11 +50,7 @@ init : () -> ( Model , Cmd Msg )
 init _ = (
     { profile = Nothing
     , busy = False
-    , players = Dict.empty
-    , cells = [ "-", "-", "-",
-                "-", "-", "-",
-                "-", "-", "-"
-    ]
+    , game = Nothing
     }, Cmd.none)
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -73,18 +70,23 @@ update msg model =
         Place x y ->
             let
                 key = y * 3 + x
-                cellString = model.cells
-                    |> List.indexedMap (\index s ->
-                        if index == key then "X"
-                        else s
-                    )
-                    |> String.join ""
+                cellString = Maybe.map
+                    (\game -> game.cells
+                        |> List.indexedMap (\index s ->
+                            if index == key then "X"
+                            else s
+                        )
+                        |> String.join ""
+                    ) model.game
             in
-            ( model, fbUpdateCells cellString )
-        CellsUpdated result ->
+            case cellString of
+                Just value -> ( model, fbUpdateCells value )
+                Nothing -> ( model, Cmd.none)
+        GameUpdated result ->
             case result of
-                Ok cells ->
-                    ( { model | cells = cells }, Cmd.none )
+                Ok game ->
+                    ( { model | game = Just game }
+                    , Cmd.none )
                 Err err ->
                     Debug.log (Debug.toString err)
                     ( model, Cmd.none )
@@ -98,10 +100,14 @@ subscriptions _ =
     Sub.batch
         [ fbProfile (D.decodeValue decodeProfile >> LoginComplete)
         , fbCellsUpdated (D.decodeValue decodeCells >> CellsUpdated)
+        , fbGameUpdated (D.decodeValue decodeGame >> GameUpdated)
         ]
 
 view : Model -> Html Msg
 view model =
+    let
+        cells = model.game |> Maybe.map .cells
+    in
     div [ class("container") ]
         [ div [ class("row") ]
             [ h1 [ class("col text-center") ] [ text "Tic-Tac-Toe" ]
@@ -119,9 +125,12 @@ view model =
                         [ div [ class("col") ]
                             [ profileElement profile
                             ]
-                        , div [ class("col") ]
-                            [ boardElement Place playerToken model.cells
-                            ]
+                        , case cells of
+                            Just cells_ ->
+                                div [ class("col") ]
+                                    [ boardElement Place playerToken cells_
+                                    ]
+                            Nothing -> empty
                         ]
             ]
         ]

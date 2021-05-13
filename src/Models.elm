@@ -10,6 +10,12 @@ type alias Profile =
     , displayName : Maybe String
     }
 
+type alias Game =
+    { player1 : String
+    , player2 : Maybe String
+    , cells : List String
+    }
+
 makeAnonProfile : String -> Profile
 makeAnonProfile uid = Profile uid True Nothing
 
@@ -24,3 +30,10 @@ decodeProfile =
 decodeCells : Decoder (List String)
 decodeCells =
     D.string |> D.andThen (String.split "" >> D.succeed)
+
+decodeGame : Decoder Game
+decodeGame =
+    D.map3 Game
+        (D.field "player1" D.string)
+        (D.maybe (D.field "player2" D.string))
+        (D.field "cells" decodeCells)

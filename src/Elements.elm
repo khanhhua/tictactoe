@@ -31,12 +31,16 @@ boardElement onPlace cellRenderer cells =
 
 profileElement : Profile -> Html msg
 profileElement p =
-    div [ class("profile") ]
+    div [ class("card profile") ]
         [ if p.anonymous
         then
-            span [] [ text ("Anonymous (" ++ p.uid ++ ")") ]
+            div [ class("card-body") ]
+                [ text ("Anonymous (" ++ p.uid ++ ")")
+                ]
         else
-            span [] [ maybeText p.displayName ]
+            div [ class("card-body") ]
+                [ maybeText p.displayName
+                ]
         ]
 
 nPartition : Int-> List a -> List (List a)
