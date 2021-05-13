@@ -20,6 +20,8 @@ const app = Elm.Main.init({
     node: document.querySelector('#app'),
 });
 
+let deregisterActiveGame;
+
 app.ports.fbLogin.subscribe(async () => {
     console.log('Logging in Firebase..');
 
@@ -27,23 +29,43 @@ app.ports.fbLogin.subscribe(async () => {
         const { user } = await firebase.auth().signInAnonymously();
         console.log({ user });
 
-        app.ports.fbProfile.send(user);
+        app.ports.firebaseInput.send(['profile', user]);
     } catch (e) {
         console.error(e);
     }
+});
+
+app.ports.fbSelectActiveGame.subscribe((gameId) => {
+    if (deregisterActiveGame) {
+        deregisterActiveGame();
+        deregisterActiveGame = null;
+    }
+
+    const callback = (snapshot) => {
+        const game = snapshot.val();
+        console.log({ game });
+        app.ports.firebaseInput.send(['game', game]);
+    };
+
+    firebase.database().ref(`games/${gameId}`).on('value', callback);
+
+    deregisterActiveGame = function () {
+        firebase.database().ref(`games/${gameId}`).off('value', callback);
+    };
 });
 
 app.ports.fbUpdateCells.subscribe(async (cellString) => {
     console.log({ cellString });
     try {
-        await firebase.database().ref('cells').set(cellString);
+        await firebase.database().ref('games/-game1/cells').set(cellString);
     } catch (e) {
         console.error(e);
     }
 });
 
-firebase.database().ref().on('value', (snapshot) => {
-    const game = snapshot.val();
-    console.log({ game });
-    app.ports.fbGameUpdated.send(game);
+
+firebase.database().ref('gameList').on('value', (snapshot) => {
+    const gameList = snapshot.val();
+    console.log({ gameList });
+    app.ports.firebaseInput.send(['gameList', gameList]);
 });

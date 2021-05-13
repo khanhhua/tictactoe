@@ -2,18 +2,19 @@ port module Main exposing (main)
 
 import Browser exposing (Document)
 import Json.Decode as D exposing (Decoder, Error, Value)
-import Dict exposing (Dict)
-import Elements exposing (boardElement, empty, profileElement)
-import Html exposing (Html, button, div, h1, p, span, text)
+import Elements exposing (boardElement, empty, gameListElement, profileElement)
+import Html exposing (Html, button, div, h1, span, text)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
-import Models exposing (Game, Profile, decodeCells, decodeGame, decodeProfile)
+import Models exposing (Game, GameOverview, Profile, TaggedValue, decodeCells, decodeGame, decodeGameOverview, decodeProfile, decodeTaggedValue)
 
 port fbLogin : () -> Cmd msg
+port fbSelectActiveGame : String -> Cmd msg
 port fbUpdateCells : String -> Cmd msg
-port fbProfile : (Value -> msg) -> Sub msg
-port fbCellsUpdated : (Value -> msg) -> Sub msg
-port fbGameUpdated : (Value -> msg) -> Sub msg
+
+-- TODO Refactor into a separate engine
+port firebaseInput : (Value -> msg) -> Sub msg  -- Taking input from Firebase
+port firebaseOutput : Value -> Cmd msg          -- Sending output to Firebase
 
 
 main : Program () Model Msg
@@ -24,22 +25,21 @@ main = Browser.element
     , view = view
     }
 
-type alias Player =
-    { player : String
-    }
-
 type alias Model =
     { profile : Maybe Profile
     , busy : Bool
-    , game : Maybe Game
+    , activeGame : Maybe Game
+    , gameList : List GameOverview
     }
 
 type Msg
     = NoOp
     | Login
     | LoginComplete (Result Error Profile)
+    | SelectActiveGame String
+    | SelectActiveGameComplete (Result Error Game)
+    | GameListUpdated (Result Error (List GameOverview))
     | Place Int Int
-    | CellsUpdated (Result Error (List String))
     | GameUpdated (Result Error Game)
 
 playerToken : String -> Html msg
@@ -50,8 +50,9 @@ init : () -> ( Model , Cmd Msg )
 init _ = (
     { profile = Nothing
     , busy = False
-    , game = Nothing
-    }, Cmd.none)
+    , activeGame = Nothing
+    , gameList = []
+    }, Cmd.none )
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -67,6 +68,10 @@ update msg model =
             ( { model
             | busy = False, profile = profile }, Cmd.none
             )
+        SelectActiveGame gameId ->
+            ( { model | busy = True }, fbSelectActiveGame(gameId) )
+        SelectActiveGameComplete result ->
+            ( model, Cmd.none )
         Place x y ->
             let
                 key = y * 3 + x
@@ -77,60 +82,78 @@ update msg model =
                             else s
                         )
                         |> String.join ""
-                    ) model.game
+                    ) model.activeGame
             in
             case cellString of
                 Just value -> ( model, fbUpdateCells value )
                 Nothing -> ( model, Cmd.none)
+        GameListUpdated result ->
+            case result of
+                Ok gameList ->
+                    ( { model | gameList = gameList }, Cmd.none )
+                Err err ->
+                    ( model, Cmd.none )
         GameUpdated result ->
             case result of
                 Ok game ->
-                    ( { model | game = Just game }
+                    ( { model | activeGame = Just game }
                     , Cmd.none )
                 Err err ->
-                    Debug.log (Debug.toString err)
                     ( model, Cmd.none )
         _ ->
             ( model, Cmd.none )
 
 -- SUBSCRIPTIONS
 
+firebaseMsgRouter : Result Error TaggedValue -> Msg
+firebaseMsgRouter result =
+    case result of
+        Err _ -> NoOp
+        Ok taggedValue ->
+            case taggedValue.tag of
+                "profile" ->
+                    taggedValue.value |> D.decodeValue decodeProfile |> LoginComplete
+                "gameList" ->
+                    taggedValue.value |> D.decodeValue (D.list decodeGameOverview) |> GameListUpdated
+                "game" ->
+                    taggedValue.value |> D.decodeValue decodeGame |> GameUpdated
+                _ -> NoOp
+
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.batch
-        [ fbProfile (D.decodeValue decodeProfile >> LoginComplete)
-        , fbCellsUpdated (D.decodeValue decodeCells >> CellsUpdated)
-        , fbGameUpdated (D.decodeValue decodeGame >> GameUpdated)
+        [ firebaseInput (D.decodeValue decodeTaggedValue >> firebaseMsgRouter)
         ]
 
 view : Model -> Html Msg
 view model =
     let
-        cells = model.game |> Maybe.map .cells
+        cells = model.activeGame |> Maybe.map .cells
     in
     div [ class("container") ]
         [ div [ class("row") ]
             [ h1 [ class("col text-center") ] [ text "Tic-Tac-Toe" ]
             ]
         , div [ class("row") ]
-            [ case model.profile of
-                Nothing ->
-                    button
-                       [ class("btn btn-primary")
-                       , onClick Login
-                       ]
-                       [ text "Login" ]
-                Just profile ->
-                    div [ class("row") ]
-                        [ div [ class("col") ]
-                            [ profileElement profile
+            [ div [ class("rol-1") ]
+                [ case model.profile of
+                    Nothing ->
+                        button
+                            [ class("btn btn-primary")
+                            , onClick Login
                             ]
-                        , case cells of
-                            Just cells_ ->
-                                div [ class("col") ]
-                                    [ boardElement Place playerToken cells_
-                                    ]
-                            Nothing -> empty
-                        ]
+                            [ text "Login" ]
+                    Just profile ->
+                        profileElement profile
+                ]
+
+            , div [ class("col mx-auto") ]
+                [ case cells of
+                    Just cells_ ->
+                        boardElement Place playerToken cells_
+                    Nothing -> empty
+                ]
+            , div [ class("col-3") ]
+                [ gameListElement SelectActiveGame model.gameList ]
             ]
         ]

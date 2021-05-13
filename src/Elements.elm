@@ -1,9 +1,9 @@
 module Elements exposing (..)
 
-import Html exposing (Html, div, span, text)
+import Html exposing (Html, div, li, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
-import Models exposing (Profile)
+import Models exposing (GameOverview, Profile)
 
 empty : Html msg
 empty = text ""
@@ -16,7 +16,7 @@ maybeText str =
 
 boardElement : (Int -> Int -> msg) -> (String -> Html msg) -> List String -> Html msg
 boardElement onPlace cellRenderer cells =
-    div [ class("board") ]
+    div [ class("board mx-auto") ]
         ( cells
         |> nPartition 3
         |> List.indexedMap (\y row ->
@@ -42,6 +42,21 @@ profileElement p =
                 [ maybeText p.displayName
                 ]
         ]
+
+playerListElement : List Profile -> Html msg
+playerListElement playerProfiles =
+    empty
+
+gameListElement : (String -> msg) -> List GameOverview -> Html msg
+gameListElement onSelectGame gameList =
+    ul [ class("list-group") ]
+        ( gameList
+        |> List.map (\game ->
+            li [ class("list-group-item list-group-item-action")
+                , onClick (onSelectGame game.id)
+                ] [ text game.title ]
+            )
+        )
 
 nPartition : Int-> List a -> List (List a)
 nPartition n list =
