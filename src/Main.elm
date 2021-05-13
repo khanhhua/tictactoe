@@ -3,7 +3,7 @@ port module Main exposing (main)
 import Browser exposing (Document)
 import Json.Decode as D exposing (Decoder, Error, Value)
 import Elements exposing (boardElement, empty, gameListElement, profileElement)
-import Html exposing (Html, button, div, h1, span, text)
+import Html exposing (Html, button, div, h1, li, nav, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import Models exposing (Game, GameOverview, Profile, TaggedValue, decodeCells, decodeGame, decodeGameOverview, decodeProfile, decodeTaggedValue)
@@ -130,30 +130,33 @@ view model =
     let
         cells = model.activeGame |> Maybe.map .cells
     in
-    div [ class("container") ]
-        [ div [ class("row") ]
-            [ h1 [ class("col text-center") ] [ text "Tic-Tac-Toe" ]
+    div []
+        [ nav [class "navbar navbar-expand-lg navbar-light bg-light mb-3"]
+            [ span [ class("navbar-brand") ] [ text "Tic-Tac-Toe"  ]
+            , ul [ class("navbar-nav ml-auto") ]
+                [ li [ class("nav-item") ]
+                    [ case model.profile of
+                        Nothing ->
+                            button
+                                [ class("btn btn-primary")
+                                , onClick Login
+                                ]
+                                [ text "Login" ]
+                        Just profile ->
+                            profileElement profile
+                    ]
+                ]
             ]
-        , div [ class("row") ]
-            [ div [ class("rol-1") ]
-                [ case model.profile of
-                    Nothing ->
-                        button
-                            [ class("btn btn-primary")
-                            , onClick Login
-                            ]
-                            [ text "Login" ]
-                    Just profile ->
-                        profileElement profile
+        , div [ class("container") ]
+            [ div [ class("row") ]
+                [ div [ class("col mx-auto") ]
+                    [ case cells of
+                        Just cells_ ->
+                            boardElement Place playerToken cells_
+                        Nothing -> empty
+                    ]
+                , div [ class("col-3") ]
+                    [ gameListElement SelectActiveGame model.gameList ]
                 ]
-
-            , div [ class("col mx-auto") ]
-                [ case cells of
-                    Just cells_ ->
-                        boardElement Place playerToken cells_
-                    Nothing -> empty
-                ]
-            , div [ class("col-3") ]
-                [ gameListElement SelectActiveGame model.gameList ]
             ]
         ]
