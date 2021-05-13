@@ -16,7 +16,8 @@ type alias GameOverview =
     }
 
 type alias Game =
-    { player1 : String
+    { id : String
+    , player1 : String
     , player2 : Maybe String
     , cells : List String
     }
@@ -43,7 +44,8 @@ decodeCells =
 
 decodeGame : Decoder Game
 decodeGame =
-    D.map3 Game
+    D.map4 Game
+        (D.field "id" D.string)
         (D.field "player1" D.string)
         (D.maybe (D.field "player2" D.string))
         (D.field "cells" decodeCells)

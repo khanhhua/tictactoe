@@ -1,6 +1,6 @@
 module Elements exposing (..)
 
-import Html exposing (Html, div, li, span, text, ul)
+import Html exposing (Html, div, h5, li, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import Models exposing (GameOverview, Profile)
@@ -31,15 +31,18 @@ boardElement onPlace cellRenderer cells =
 
 profileElement : Profile -> Html msg
 profileElement p =
-    div [ class("card profile") ]
-        [ if p.anonymous
+    div [ class("media profile") ]
+        [ span [ class("media-object align-self-start flex-shrink-0 text-uppercase mr-3") ]
+            [ text (String.slice 0 1 p.uid)
+            ]
+        , if p.anonymous
         then
-            div [ class("card-body") ]
-                [ text ("Anonymous (" ++ p.uid ++ ")")
+            div [ class("media-body") ]
+                [ h5 [ class("mt-0") ] [ text ("Anonymous (" ++ p.uid ++ ")") ]
                 ]
         else
-            div [ class("card-body") ]
-                [ maybeText p.displayName
+            div [ class("media-body") ]
+                [ h5 [ class("mt-0") ] [maybeText p.displayName ]
                 ]
         ]
 

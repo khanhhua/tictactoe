@@ -1,6 +1,7 @@
 port module Main exposing (main)
 
 import Browser exposing (Document)
+import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
 import Elements exposing (boardElement, empty, gameListElement, profileElement)
 import Html exposing (Html, button, div, h1, li, nav, span, text, ul)
@@ -10,7 +11,7 @@ import Models exposing (Game, GameOverview, Profile, TaggedValue, decodeCells, d
 
 port fbLogin : () -> Cmd msg
 port fbSelectActiveGame : String -> Cmd msg
-port fbUpdateCells : String -> Cmd msg
+port fbUpdateCells : Value -> Cmd msg
 
 -- TODO Refactor into a separate engine
 port firebaseInput : (Value -> msg) -> Sub msg  -- Taking input from Firebase
@@ -75,17 +76,47 @@ update msg model =
         Place x y ->
             let
                 key = y * 3 + x
-                cellString = Maybe.map
-                    (\game -> game.cells
-                        |> List.indexedMap (\index s ->
-                            if index == key then "X"
-                            else s
+                {- maybeToken is functionally dependant on
+                    - maybe activeGame
+                        - player1
+                        - maybe player2
+                    - maybe profile
+                    Therefore the first step is to unwrap all maybes and nested maybes into a nested maybe tuple,
+                    in which "andThen" the logic for token is
+                -}
+                maybeToken : Maybe String
+                maybeToken =
+                    (Maybe.map3
+                        (\activeGame player2 profile -> (activeGame, player2, profile))
+                        (model.activeGame |> Maybe.map .player1)
+                        (model.activeGame |> Maybe.andThen .player2)
+                        model.profile
+                    )
+                    |> Maybe.andThen (\(player1, player2, profile) ->
+                        if profile.uid == player1 then Just "1"
+                        else if profile.uid == player2 then Just "2"
+                        else Nothing
+                    )
+                param = Maybe.map2 (\game token ->
+                        ( game.id
+                        , game.cells
+                            |> List.indexedMap (\index s ->
+                                if index == key then token
+                                    else s
+                                )
+                                |> String.join ""
                         )
-                        |> String.join ""
-                    ) model.activeGame
+                    ) model.activeGame maybeToken
             in
-            case cellString of
-                Just value -> ( model, fbUpdateCells value )
+            case param of
+                Just (gameId, cellString) ->
+                    let
+                        value = E.object
+                            [ ( "gameId", E.string gameId )
+                            , ( "cells", E.string cellString )
+                            ]
+                    in
+                    ( model, fbUpdateCells value )
                 Nothing -> ( model, Cmd.none)
         GameListUpdated result ->
             case result of
@@ -148,19 +179,19 @@ view model =
             ]
         , div [ class("container") ]
             [ div [ class("row") ]
-                [ div []
-                    [ model.profile
-                        |> Maybe.andThen (profileElement >> Just)
-                        |> Maybe.withDefault empty
-                    ]
+                [ div [ class("col-3") ]
+                    [ gameListElement SelectActiveGame model.gameList ]
                 , div [ class("col mx-auto") ]
                     [ case cells of
                         Just cells_ ->
                             boardElement Place playerToken cells_
                         Nothing -> empty
                     ]
-                , div [ class("col-3") ]
-                    [ gameListElement SelectActiveGame model.gameList ]
+                ,  div [ class("col-3") ]
+                    [ model.profile
+                        |> Maybe.andThen (profileElement >> Just)
+                        |> Maybe.withDefault empty
+                    ]
                 ]
             ]
         ]

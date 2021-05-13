@@ -27,6 +27,20 @@
   border-radius: 50%;
 }
 
+.media-object {
+  --profile-icon-width: 3rem;
+
+  width: var(--profile-icon-width, 3rem);
+  height: var(--profile-icon-width, 3rem);
+  border-radius: 50%;
+
+  background-color: white;
+  border: 1px solid #aaa;
+
+  line-height: var(--profile-icon-width, 3rem);
+  text-align: center;
+}
+
 .board {
   width: fit-content;
 }

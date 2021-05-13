@@ -54,10 +54,10 @@ app.ports.fbSelectActiveGame.subscribe((gameId) => {
     };
 });
 
-app.ports.fbUpdateCells.subscribe(async (cellString) => {
-    console.log({ cellString });
+app.ports.fbUpdateCells.subscribe(async ({ gameId, cells }) => {
+    console.log({ cells });
     try {
-        await firebase.database().ref('games/-game1/cells').set(cellString);
+        await firebase.database().ref(`games/${gameId}/cells`).set(cells);
     } catch (e) {
         console.error(e);
     }
