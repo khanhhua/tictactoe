@@ -54,10 +54,14 @@ app.ports.fbSelectActiveGame.subscribe((gameId) => {
     };
 });
 
-app.ports.fbUpdateCells.subscribe(async ({ gameId, cells }) => {
-    console.log({ cells });
+app.ports.fbUpdateCells.subscribe(async ({ gameId, cells, activePlayer, winner }) => {
+    console.log({ gameId, cells, activePlayer, winner });
     try {
-        await firebase.database().ref(`games/${gameId}/cells`).set(cells);
+        if (winner === 'None') {
+            await firebase.database().ref(`games/${gameId}`).update({ activePlayer, cells });
+        } else {
+            await firebase.database().ref(`games/${gameId}`).update({ activePlayer, cells, winner });
+        }
     } catch (e) {
         console.error(e);
     }

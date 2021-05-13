@@ -9,6 +9,7 @@
   height: var(--width);
 
   padding: 0.25rem;
+  border: 1px solid #acacac;
   box-sizing: border-box;
 }
 
@@ -23,8 +24,15 @@
   vertical-align: middle;
   text-align: center;
 
-  border: 1px solid #acacac;
   border-radius: 50%;
+}
+.player-token-1 {
+  background-color: #ff5c00;
+  box-shadow: 0 4px 6px rgb(124 124 124);
+}
+.player-token-2 {
+  background-color: #6b46f3;
+  box-shadow: 0 4px 6px rgb(124 124 124);
 }
 
 .media-object {

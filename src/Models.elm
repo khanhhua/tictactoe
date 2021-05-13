@@ -19,7 +19,9 @@ type alias Game =
     { id : String
     , player1 : String
     , player2 : Maybe String
+    , activePlayer : Maybe String
     , cells : List String
+    , winner : Maybe String
     }
 
 type alias TaggedValue =
@@ -44,11 +46,13 @@ decodeCells =
 
 decodeGame : Decoder Game
 decodeGame =
-    D.map4 Game
+    D.map6 Game
         (D.field "id" D.string)
         (D.field "player1" D.string)
         (D.maybe (D.field "player2" D.string))
+        (D.maybe (D.field "activePlayer" D.string))
         (D.field "cells" decodeCells)
+        (D.maybe (D.field "winner" D.string))
 
 decodeGameOverview : Decoder GameOverview
 decodeGameOverview =
