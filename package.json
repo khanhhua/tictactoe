@@ -1,0 +1,43 @@
+{
+  "name": "tictactoe",
+  "version": "1.0.0",
+  "description": "Tic Tac Toe 2021",
+  "main": "webpack.config.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "build": "webpack",
+    "build:prod": "rimraf dist && webpack --config webpack.config.prod.js",
+    "watch": "webpack --watch",
+    "start": "webpack serve --port 8000",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@gitlab.com/khanhhua/tictactoe.git"
+  },
+  "keywords": [
+    "elm",
+    "tictactoe"
+  ],
+  "author": "Khanh Hua",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://gitlab.com/khanhhua/tactactoe/issues"
+  },
+  "homepage": "https://gitlab.com/khanhhua/tactactoe#readme",
+  "dependencies": {
+    "css-loader": "^5.2.2",
+    "elm": "^0.19.1-5",
+    "elm-webpack-loader": "^8.0.0",
+    "firebase": "^8.6.0",
+    "html-loader": "^2.1.2",
+    "html-webpack-plugin": "^5.3.1",
+    "rimraf": "^3.0.2",
+    "style-loader": "^2.0.0",
+    "webpack": "^5.33.2",
+    "webpack-cli": "^4.6.0",
+    "webpack-dev-server": "^3.11.2"
+  }
+}

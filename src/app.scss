@@ -1,0 +1,28 @@
+:root {
+  --width: 5rem;
+}
+
+.cell {
+  flex-basis: var(--width);
+  flex-grow: 0;
+  width: var(--width);
+  height: var(--width);
+
+  padding: 0.25rem;
+  box-sizing: border-box;
+}
+
+.player-token {
+  display: block;
+  width: 100%;
+  height: 100%;
+
+  font-weight: 700;
+  font-size: 2rem;
+  line-height: calc(var(--width, 2rem) - 0.5rem);
+  vertical-align: middle;
+  text-align: center;
+
+  border: 1px solid #acacac;
+  border-radius: 50%;
+}
