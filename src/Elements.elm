@@ -53,14 +53,41 @@ playerListElement : List Profile -> Html msg
 playerListElement playerProfiles =
     empty
 
-gameListElement : (String -> msg) -> List GameOverview -> Html msg
-gameListElement onSelectGame gameList =
+gameListElement : (String -> msg) -> (String -> msg) -> Maybe Profile -> List GameOverview -> Html msg
+gameListElement onSelectGame onJoinGame playerProfile gameList =
     ul [ class("list-group") ]
         ( gameList
         |> List.map (\game ->
-            li [ class("list-group-item list-group-item-action")
-                , onClick (onSelectGame game.id)
-                ] [ text game.title ]
+            li [ class("list-group-item list-group-item-action d-flex align-items-center")
+               ]
+                ([ text game.title
+                ]
+                ++
+                case playerProfile |> Maybe.map .uid of
+                    Just playerProfileUid -> if playerProfileUid /= game.id
+                        then
+                        [ button
+                            [ class "ml-auto btn btn-sm btn-primary"
+                            , onClick (onJoinGame game.id)
+                            ] [ text "Join" ]
+                        , button
+                            [ class "ml-1 btn btn-sm btn-info"
+                            , onClick (onSelectGame game.id)
+                            ] [ text "View" ]
+                        ]
+                        else
+                        [ button
+                           [ class "ml-auto btn btn-sm btn-info"
+                           , onClick (onSelectGame game.id)
+                           ] [ text "View" ]
+                        ]
+                    Nothing ->
+                        [ button
+                            [ class "ml-auto btn btn-sm btn-info"
+                            , onClick (onSelectGame game.id)
+                            ] [ text "View" ]
+                        ]
+                )
             )
         )
 

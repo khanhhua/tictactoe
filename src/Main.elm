@@ -17,6 +17,7 @@ port fbLogin : () -> Cmd msg
 port fbSelectActiveGame : String -> Cmd msg
 port fbUpdateCells : Value -> Cmd msg
 port fbStartNewGame : Value -> Cmd msg
+port fbJoinGame : Value -> Cmd msg
 port fbLeaveGame : Value -> Cmd msg
 
 -- TODO Refactor into a separate engine
@@ -35,6 +36,7 @@ main = Browser.element
 type alias Model =
     { profile : Maybe Profile
     , busy : Bool
+    , activeGameId : Maybe String
     , activeGame : Maybe Game
     , gameList : List GameOverview
     , modalMessage : Maybe String
@@ -51,6 +53,7 @@ type Msg
     | GameUpdated (Result Error Game)
     | ShowModal String
     | StartNewGame
+    | JoinGame String
     | LeaveGame String
 
 cellIndex : Int -> Int -> Int
@@ -130,6 +133,7 @@ init : () -> ( Model , Cmd Msg )
 init _ = (
     { profile = Nothing
     , busy = False
+    , activeGameId = Nothing
     , activeGame = Nothing
     , gameList = []
     , modalMessage = Nothing
@@ -150,7 +154,10 @@ update msg model =
             | busy = False, profile = profile }, Cmd.none
             )
         SelectActiveGame gameId ->
-            ( { model | busy = True }, fbSelectActiveGame(gameId) )
+            ( { model
+            | busy = True
+            , activeGameId = Just gameId
+            }, fbSelectActiveGame(gameId) )
         SelectActiveGameComplete result ->
             ( model, Cmd.none )
         Place x y ->
@@ -234,14 +241,19 @@ update msg model =
                     let
                         ( updatedModel, cmd ) = if (game.winner == Nothing) && (model.modalMessage /= Nothing)
                             then
-                                 ( { model
-                                 | activeGame = Just game
-                                 , modalMessage = Nothing
-                                 }, bootstrap "modal.hide" )
+                                ( { model
+                                | activeGame = Just game
+                                , modalMessage = Nothing
+                                }, bootstrap "modal.hide" )
                             else
-                                ( { model | activeGame = Just game }
-                                , ( Maybe.map2
-                                        (\winner profile ->
+                                ( { model | activeGame = case model.activeGameId of
+                                    Nothing -> Nothing
+                                    Just activeGameId -> if game.id == activeGameId
+                                        then Just game
+                                        else Nothing
+                                }
+                                , ( Maybe.map3
+                                        (\_ winner profile ->
                                             Cmd.batch
                                                 [ bootstrap "show.modal"
                                                 , if winner == profile
@@ -249,6 +261,7 @@ update msg model =
                                                     else Task.perform ShowModal (Task.succeed "You lose!")
                                                 ]
                                             )
+                                        game.player2
                                         game.winner
                                         (model.profile |> Maybe.map .uid)
                                     )
@@ -262,13 +275,16 @@ update msg model =
         StartNewGame ->
             let
                 maybeCmd =
-                    Maybe.map4
-                        (\profile owner gameId winner ->
+                    Maybe.map5
+                        (\profile owner player2 gameId winner ->
                             if profile == owner then
+                                let
+                                    activePlayer = if player2 == Nothing then owner else winner
+                                in
                                 fbStartNewGame
                                     ( E.object
                                         [ ( "gameId", E.string gameId )
-                                        , ( "activePlayer", E.string winner )
+                                        , ( "activePlayer", E.string activePlayer )
                                         , ( "cells", E.string  "---------" )
                                         , ( "winner", E.null )
                                         ]
@@ -278,23 +294,40 @@ update msg model =
                         )
                         (model.profile |> Maybe.map .uid)
                         (model.activeGame |> Maybe.map .player1) -- player1 IS the owner
+                        (model.activeGame |> Maybe.map .player2)
                         (model.activeGame |> Maybe.map .id)
                         (model.activeGame |> Maybe.andThen .winner)
             in
             case maybeCmd of
                 Just cmd -> ( { model | modalMessage = Nothing }, cmd )
                 Nothing -> ( model, Cmd.none )
+        JoinGame gameId ->
+            let
+                cmd = Maybe.map (\player2 ->
+                        fbJoinGame ( E.object
+                            [ ( "gameId", E.string gameId )
+                            , ( "player2", E.string player2 )
+                            ] )
+                    ) (model.profile |> Maybe.map .uid)
+                    |> Maybe.withDefault Cmd.none
+            in
+            ( { model
+            | activeGameId = Just gameId
+            }, cmd )
         LeaveGame gameId ->
             let
                 cmd = Maybe.map2 (\profile player1 ->
                     if profile /= player1
                     then
-                        fbLeaveGame
-                            ( E.object
-                                [ ( "gameId", E.string gameId )
-                                , ( "player2", E.null )
-                                ]
-                            )
+                        Cmd.batch
+                            [ fbLeaveGame
+                                ( E.object
+                                    [ ( "gameId", E.string gameId )
+                                    , ( "activePlayer", E.string player1 )
+                                    ]
+                                )
+                            , bootstrap "modal.hide"
+                            ]
                     else
                         Cmd.none
                     )
@@ -307,6 +340,7 @@ update msg model =
             else
                 ( { model
                 | activeGame = Nothing
+                , modalMessage = Nothing
                 }, cmd )
         _ ->
             ( model, Cmd.none )
@@ -357,7 +391,7 @@ view model =
         , div [ class("container") ]
             [ div [ class("row") ]
                 [ div [ class("col-3") ]
-                    [ gameListElement SelectActiveGame model.gameList ]
+                    [ gameListElement SelectActiveGame JoinGame model.profile model.gameList ]
                 , div [ class("col mx-auto") ]
                     [ case cells of
                         Just cells_ ->

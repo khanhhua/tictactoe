@@ -56,13 +56,34 @@ app.ports.fbSelectActiveGame.subscribe((gameId) => {
 
     const callback = (snapshot) => {
         const game = snapshot.val();
-        console.log({ game });
+        console.log('fbSelectActiveGame:', { game });
         app.ports.firebaseInput.send(['game', game]);
     };
 
     firebase.database().ref(`games/${gameId}`).on('value', callback);
 
     deregisterActiveGame = function () {
+        firebase.database().ref(`games/${gameId}`).off('value', callback);
+    };
+});
+
+app.ports.fbJoinGame.subscribe(async ({ gameId, player2 }) => {
+    if (deregisterActiveGame) {
+        deregisterActiveGame();
+        deregisterActiveGame = null;
+    }
+
+    const callback = (snapshot) => {
+        const game = snapshot.val();
+        console.log('fbJoinGame:', { game });
+        app.ports.firebaseInput.send(['game', game]);
+    };
+
+    await firebase.database().ref(`games/${gameId}`).update({ player2 });
+
+    firebase.database().ref(`games/${gameId}`).on('value', callback);
+    deregisterActiveGame = function () {
+        console.log(`Unsubscribing from games/${gameId}...`);
         firebase.database().ref(`games/${gameId}`).off('value', callback);
     };
 });
@@ -84,6 +105,22 @@ app.ports.fbStartNewGame.subscribe(async ({ gameId, cells, activePlayer, winner 
     console.log({ gameId, cells, activePlayer, winner });
     try {
         await firebase.database().ref(`games/${gameId}`).update({ activePlayer, cells, winner });
+    } catch (e) {
+        console.error(e);
+    }
+});
+
+app.ports.fbLeaveGame.subscribe(async ({ gameId, activePlayer }) => {
+    if (deregisterActiveGame) {
+        deregisterActiveGame();
+        deregisterActiveGame = null;
+    }
+
+    try {
+        await firebase.database().ref(`games/${gameId}`).update({
+            activePlayer,
+            player2: null,
+        });
     } catch (e) {
         console.error(e);
     }
