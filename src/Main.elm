@@ -4,7 +4,7 @@ import Browser exposing (Document)
 import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
 import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement)
-import Html exposing (Html, button, div, h1, li, nav, span, text, ul)
+import Html exposing (Html, button, div, h1, h5, li, nav, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import List exposing (range)
@@ -18,6 +18,7 @@ port fbSelectActiveGame : String -> Cmd msg
 port fbUpdateCells : Value -> Cmd msg
 port fbStartNewGame : Value -> Cmd msg
 port fbJoinGame : Value -> Cmd msg
+port fbRequestToJoinGame : Value -> Cmd msg
 port fbLeaveGame : Value -> Cmd msg
 
 -- TODO Refactor into a separate engine
@@ -39,6 +40,7 @@ type alias Model =
     , activeGameId : Maybe String
     , activeGame : Maybe Game
     , gameList : List GameOverview
+    , requesterList : List String
     , modalMessage : Maybe String
     }
 
@@ -53,7 +55,9 @@ type Msg
     | GameUpdated (Result Error Game)
     | ShowModal String
     | StartNewGame
-    | JoinGame String
+    | RequestToJoinGame String
+    | GotRequestToJoinGame (Result Error String)
+    | JoinGame String String
     | LeaveGame String
 
 cellIndex : Int -> Int -> Int
@@ -136,6 +140,7 @@ init _ = (
     , activeGameId = Nothing
     , activeGame = Nothing
     , gameList = []
+    , requesterList = []
     , modalMessage = Nothing
     }, Cmd.none )
 
@@ -301,10 +306,10 @@ update msg model =
             case maybeCmd of
                 Just cmd -> ( { model | modalMessage = Nothing }, cmd )
                 Nothing -> ( model, Cmd.none )
-        JoinGame gameId ->
+        RequestToJoinGame gameId ->
             let
                 cmd = Maybe.map (\player2 ->
-                        fbJoinGame ( E.object
+                        fbRequestToJoinGame ( E.object
                             [ ( "gameId", E.string gameId )
                             , ( "player2", E.string player2 )
                             ] )
@@ -314,6 +319,24 @@ update msg model =
             ( { model
             | activeGameId = Just gameId
             }, cmd )
+        JoinGame gameId player2 ->
+            let
+                cmd = fbJoinGame ( E.object
+                    [ ( "gameId", E.string gameId )
+                    , ( "player2", E.string player2 )
+                    ] )
+            in
+            ( { model
+            | activeGameId = Just gameId
+            , requesterList = []
+            }, cmd )
+        GotRequestToJoinGame result ->
+            case result of
+                Ok requesterUid ->
+                    ( { model
+                    | requesterList = requesterUid :: model.requesterList
+                    }, Cmd.none )
+                _ -> ( model, Cmd.none )
         LeaveGame gameId ->
             let
                 cmd = Maybe.map2 (\profile player1 ->
@@ -359,6 +382,8 @@ firebaseMsgRouter result =
                     taggedValue.value |> D.decodeValue (D.list decodeGameOverview) |> GameListUpdated
                 "game" ->
                     taggedValue.value |> D.decodeValue decodeGame |> GameUpdated
+                "requester" ->
+                    taggedValue.value |> D.decodeValue D.string |> GotRequestToJoinGame
                 _ -> NoOp
 
 subscriptions : Model -> Sub Msg
@@ -391,7 +416,7 @@ view model =
         , div [ class("container") ]
             [ div [ class("row") ]
                 [ div [ class("col-3") ]
-                    [ gameListElement SelectActiveGame JoinGame model.profile model.gameList ]
+                    [ gameListElement SelectActiveGame RequestToJoinGame model.profile model.gameList ]
                 , div [ class("col mx-auto") ]
                     [ case cells of
                         Just cells_ ->
@@ -401,6 +426,26 @@ view model =
                 ,  div [ class("col-3") ]
                     [ model.profile
                         |> Maybe.andThen (profileElement >> Just)
+                        |> Maybe.withDefault empty
+                    , model.profile
+                        |> Maybe.andThen ((\profile ->
+                            div []
+                                [ h5 [] [ text "Requestors" ]
+                                , ul [ class "list-group" ]
+                                    ( model.requesterList
+                                    |> List.map (\requesterUid ->
+                                        li [ class "list-group-item d-flex" ]
+                                            [ text requesterUid
+                                            , button
+                                                [ class "btn btn-sm btn-primary ml-auto"
+                                                , onClick (JoinGame profile.uid requesterUid)
+                                                ]
+                                                [ text "Accept"
+                                                ]
+                                            ])
+                                    )
+                                ]
+                            ) >> Just )
                         |> Maybe.withDefault empty
                     ]
                 ]

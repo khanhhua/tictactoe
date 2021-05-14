@@ -58,6 +58,11 @@ app.ports.fbLogin.subscribe(async () => {
                 activePlayer: user.uid,
             });
         }
+        firebase.database().ref(`games/${user.uid}/requests`).on('child_added', (snapshot) => {
+            const requesterUid = snapshot.val();
+            console.log('requesterUid', requesterUid);
+            app.ports.firebaseInput.send(['requester', requesterUid]);
+        });
 
         app.ports.firebaseInput.send(['profile', user]);
     } catch (e) {
@@ -84,25 +89,12 @@ app.ports.fbSelectActiveGame.subscribe((gameId) => {
     };
 });
 
-app.ports.fbJoinGame.subscribe(async ({ gameId, player2 }) => {
-    if (deregisterActiveGame) {
-        deregisterActiveGame();
-        deregisterActiveGame = null;
-    }
+app.ports.fbRequestToJoinGame.subscribe(async ({ gameId, player2 }) => {
+    await firebase.database().ref(`games/${gameId}/requests`).push(player2);
+});
 
-    const callback = (snapshot) => {
-        const game = snapshot.val();
-        console.log('fbJoinGame:', { game });
-        app.ports.firebaseInput.send(['game', game]);
-    };
-
-    await firebase.database().ref(`games/${gameId}`).update({ player2 });
-
-    firebase.database().ref(`games/${gameId}`).on('value', callback);
-    deregisterActiveGame = function () {
-        console.log(`Unsubscribing from games/${gameId}...`);
-        firebase.database().ref(`games/${gameId}`).off('value', callback);
-    };
+app.ports.fbJoinGame.subscribe(async ({ gameId, player2 }) => { // Received when player1 allows player2 to join
+    await firebase.database().ref(`games/${gameId}`).update({ player2, requests: null });
 });
 
 app.ports.fbUpdateCells.subscribe(async ({ gameId, cells, activePlayer, winner }) => {

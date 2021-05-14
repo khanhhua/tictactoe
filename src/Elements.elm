@@ -54,7 +54,7 @@ playerListElement playerProfiles =
     empty
 
 gameListElement : (String -> msg) -> (String -> msg) -> Maybe Profile -> List GameOverview -> Html msg
-gameListElement onSelectGame onJoinGame playerProfile gameList =
+gameListElement onSelectGame onRequestToJoinGame playerProfile gameList =
     ul [ class("list-group") ]
         ( gameList
         |> List.map (\game ->
@@ -68,7 +68,7 @@ gameListElement onSelectGame onJoinGame playerProfile gameList =
                         then
                         [ button
                             [ class "ml-auto btn btn-sm btn-primary"
-                            , onClick (onJoinGame game.id)
+                            , onClick (onRequestToJoinGame game.id)
                             ] [ text "Join" ]
                         , button
                             [ class "ml-1 btn btn-sm btn-info"
