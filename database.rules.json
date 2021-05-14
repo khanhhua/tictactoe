@@ -1,6 +1,27 @@
 {
   "rules": {
-    ".read": "now < 1623362400000",  // 2021-6-11
-    ".write": "now < 1623362400000",  // 2021-6-11
+    "players": {
+      "$player_id": {
+        ".write": "$player_id === auth.uid"
+      }
+    },
+    "gameList": {
+      ".read": "true",
+      "$game_id": {
+        ".write": "auth.uid === $game_id"
+      }
+    },
+    "games": {
+      "$game_id": {
+        ".read": "true",
+        ".write": "auth.uid === $game_id",
+        "cells": {
+          ".write": "auth.uid === data.child('player2').val()"
+        },
+        "activePlayer": {
+          ".write": "auth.uid === data.child('player2').val()"
+        }
+      }
+    }
   }
 }

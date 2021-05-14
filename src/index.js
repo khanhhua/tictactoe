@@ -42,6 +42,23 @@ app.ports.fbLogin.subscribe(async () => {
         const { user } = await firebase.auth().signInAnonymously();
         console.log({ user });
 
+        const gameListItem = await firebase.database().ref(`gameList/${user.uid}`).get();
+        if (!gameListItem.exists()) {
+            await firebase.database().ref(`gameList/${user.uid}`).set({
+                id: user.uid,
+                title: `${user.uid.substring(0, 9)}'s game`,
+            });
+        }
+        const game = await firebase.database().ref(`games/${user.uid}`).get();
+        if (!game.exists()) {
+            await firebase.database().ref(`games/${user.uid}`).set({
+                id: user.uid,
+                cells: '---------',
+                player1: user.uid,
+                activePlayer: user.uid,
+            });
+        }
+
         app.ports.firebaseInput.send(['profile', user]);
     } catch (e) {
         console.error(e);
@@ -128,7 +145,8 @@ app.ports.fbLeaveGame.subscribe(async ({ gameId, activePlayer }) => {
 
 
 firebase.database().ref('gameList').on('value', (snapshot) => {
-    const gameList = snapshot.val();
+    const value = snapshot.val();
+    const gameList = Object.values(value);
     console.log({ gameList });
     app.ports.firebaseInput.send(['gameList', gameList]);
 });
