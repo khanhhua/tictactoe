@@ -1,7 +1,7 @@
 module Elements exposing (..)
 
-import Html exposing (Html, div, h5, li, span, text, ul)
-import Html.Attributes exposing (class)
+import Html exposing (Html, button, div, h5, li, p, span, text, ul)
+import Html.Attributes exposing (class, tabindex)
 import Html.Events exposing (onClick)
 import Models exposing (GameOverview, Profile)
 
@@ -13,6 +13,9 @@ maybeText str =
     case str of
         Nothing -> empty
         Just value -> text value
+maybeElement : Maybe (Html msg) -> Html msg
+maybeElement e =
+    e |> Maybe.withDefault empty
 
 boardElement : (Int -> Int -> msg) -> (String -> Html msg) -> List String -> Html msg
 boardElement onPlace cellRenderer cells =
@@ -61,6 +64,38 @@ gameListElement onSelectGame gameList =
             )
         )
 
+gameoverModalElement: String -> Maybe msg -> Maybe msg -> Html msg
+gameoverModalElement message onRestart onLeave =
+    div []
+        [ div [ class "modal d-block", tabindex -1 ]
+            [ div [ class "modal-dialog" ]
+                [ div [ class "modal-content" ]
+                    [ div [ class "modal-body"]
+                        [ p [ class "display-4 text-center" ] [ text message ]
+                        ]
+                    , div [ class "modal-footer" ]
+                        [ case onRestart of
+                            Just onRestart_ ->
+                                button
+                                    [ class "btn btn-primary mx-auto"
+                                    , onClick onRestart_
+                                    ] [ text "NEW GAME" ]
+                            Nothing -> empty
+                        , case onLeave of
+                            Just onLeave_ ->
+                                button
+                                    [ class "btn btn-primary mx-auto"
+                                    , onClick onLeave_
+                                    ] [ text "LEAVE GAME" ]
+                            Nothing -> empty
+                        ]
+                    ]
+                ]
+            ]
+        , div [ class "modal-backdrop fade show" ] []
+        ]
+{-| Partitions a flat list into n nested lists, retaining original ordering
+-}
 nPartition : Int-> List a -> List (List a)
 nPartition n list =
     if n <= 0 then

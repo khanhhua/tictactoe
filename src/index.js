@@ -22,6 +22,19 @@ const app = Elm.Main.init({
 
 let deregisterActiveGame;
 
+app.ports.bootstrap.subscribe(msg => {
+    switch (msg) {
+        case "modal.show":
+            document.body.className = 'modal-open';
+            break;
+        case "modal.hide":
+            document.body.className = '';
+            break;
+        default:
+            break;
+    }
+});
+
 app.ports.fbLogin.subscribe(async () => {
     console.log('Logging in Firebase..');
 
@@ -62,6 +75,15 @@ app.ports.fbUpdateCells.subscribe(async ({ gameId, cells, activePlayer, winner }
         } else {
             await firebase.database().ref(`games/${gameId}`).update({ activePlayer, cells, winner });
         }
+    } catch (e) {
+        console.error(e);
+    }
+});
+
+app.ports.fbStartNewGame.subscribe(async ({ gameId, cells, activePlayer, winner }) => {
+    console.log({ gameId, cells, activePlayer, winner });
+    try {
+        await firebase.database().ref(`games/${gameId}`).update({ activePlayer, cells, winner });
     } catch (e) {
         console.error(e);
     }

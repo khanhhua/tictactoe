@@ -3,17 +3,21 @@ port module Main exposing (main)
 import Browser exposing (Document)
 import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
-import Elements exposing (boardElement, empty, gameListElement, profileElement)
+import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement)
 import Html exposing (Html, button, div, h1, li, nav, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import List exposing (range)
 import Models exposing (Game, GameOverview, Profile, TaggedValue, decodeGame, decodeGameOverview, decodeProfile, decodeTaggedValue)
 import Array as A exposing (Array)
+import Task
 
+port bootstrap : String -> Cmd msg
 port fbLogin : () -> Cmd msg
 port fbSelectActiveGame : String -> Cmd msg
 port fbUpdateCells : Value -> Cmd msg
+port fbStartNewGame : Value -> Cmd msg
+port fbLeaveGame : Value -> Cmd msg
 
 -- TODO Refactor into a separate engine
 port firebaseInput : (Value -> msg) -> Sub msg  -- Taking input from Firebase
@@ -33,6 +37,7 @@ type alias Model =
     , busy : Bool
     , activeGame : Maybe Game
     , gameList : List GameOverview
+    , modalMessage : Maybe String
     }
 
 type Msg
@@ -44,6 +49,9 @@ type Msg
     | GameListUpdated (Result Error (List GameOverview))
     | Place Int Int
     | GameUpdated (Result Error Game)
+    | ShowModal String
+    | StartNewGame
+    | LeaveGame String
 
 cellIndex : Int -> Int -> Int
 cellIndex x y = y * 3 + x
@@ -124,6 +132,7 @@ init _ = (
     , busy = False
     , activeGame = Nothing
     , gameList = []
+    , modalMessage = Nothing
     }, Cmd.none )
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -217,16 +226,88 @@ update msg model =
             case result of
                 Ok gameList ->
                     ( { model | gameList = gameList }, Cmd.none )
-                Err err ->
+                _ ->
                     ( model, Cmd.none )
         GameUpdated result ->
             case result of
                 Ok game ->
-                    -- TODO Show dialog to notify WINNER
-                    ( { model | activeGame = Just game }
-                    , Cmd.none )
-                Err err ->
+                    let
+                        ( updatedModel, cmd ) = if (game.winner == Nothing) && (model.modalMessage /= Nothing)
+                            then
+                                 ( { model
+                                 | activeGame = Just game
+                                 , modalMessage = Nothing
+                                 }, bootstrap "modal.hide" )
+                            else
+                                ( { model | activeGame = Just game }
+                                , ( Maybe.map2
+                                        (\winner profile ->
+                                            Cmd.batch
+                                                [ bootstrap "show.modal"
+                                                , if winner == profile
+                                                    then Task.perform ShowModal (Task.succeed "You won!")
+                                                    else Task.perform ShowModal (Task.succeed "You lose!")
+                                                ]
+                                            )
+                                        game.winner
+                                        (model.profile |> Maybe.map .uid)
+                                    )
+                                |> Maybe.withDefault Cmd.none)
+                    in
+                    ( updatedModel, cmd )
+                _ ->
                     ( model, Cmd.none )
+        ShowModal message ->
+            ( { model | modalMessage = Just message } , Cmd.none )
+        StartNewGame ->
+            let
+                maybeCmd =
+                    Maybe.map4
+                        (\profile owner gameId winner ->
+                            if profile == owner then
+                                fbStartNewGame
+                                    ( E.object
+                                        [ ( "gameId", E.string gameId )
+                                        , ( "activePlayer", E.string winner )
+                                        , ( "cells", E.string  "---------" )
+                                        , ( "winner", E.null )
+                                        ]
+                                    )
+                            else
+                                Cmd.none
+                        )
+                        (model.profile |> Maybe.map .uid)
+                        (model.activeGame |> Maybe.map .player1) -- player1 IS the owner
+                        (model.activeGame |> Maybe.map .id)
+                        (model.activeGame |> Maybe.andThen .winner)
+            in
+            case maybeCmd of
+                Just cmd -> ( { model | modalMessage = Nothing }, cmd )
+                Nothing -> ( model, Cmd.none )
+        LeaveGame gameId ->
+            let
+                cmd = Maybe.map2 (\profile player1 ->
+                    if profile /= player1
+                    then
+                        fbLeaveGame
+                            ( E.object
+                                [ ( "gameId", E.string gameId )
+                                , ( "player2", E.null )
+                                ]
+                            )
+                    else
+                        Cmd.none
+                    )
+                    (model.profile |> Maybe.map .uid)
+                    (model.activeGame |> Maybe.map .player1 )
+                    |> Maybe.withDefault Cmd.none
+            in
+            if cmd == Cmd.none then
+                ( model, Cmd.none )
+            else
+                ( { model
+                | activeGame = Nothing
+                }, cmd )
         _ ->
             ( model, Cmd.none )
 
@@ -290,4 +371,16 @@ view model =
                     ]
                 ]
             ]
+        , Maybe.map4 (\message gameId profile owner ->
+            if profile == owner
+            then
+                gameoverModalElement message (Just StartNewGame) Nothing
+            else
+                gameoverModalElement message Nothing (Just (LeaveGame gameId))
+            )
+            model.modalMessage
+            (model.activeGame |> Maybe.map .id)
+            (model.profile |> Maybe.map .uid)
+            (model.activeGame |> Maybe.map .player1)
+            |> maybeElement
         ]
