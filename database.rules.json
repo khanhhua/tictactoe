@@ -2,7 +2,11 @@
   "rules": {
     "players": {
       "$player_id": {
-        ".write": "$player_id === auth.uid"
+        ".write": "$player_id === auth.uid",
+        ".read": "$player_id === auth.uid",
+        "requests": {
+          ".write": "auth != null"
+        }
       }
     },
     "gameList": {
@@ -16,10 +20,13 @@
         ".read": "true",
         ".write": "auth.uid === $game_id",
         "cells": {
-          ".write": "auth.uid === data.child('player2').val()"
+          ".write": "auth.uid === data.parent().child('player2').val()"
         },
         "activePlayer": {
-          ".write": "auth.uid === data.child('player2').val()"
+          ".write": "auth.uid === data.parent().child('player2').val()"
+        },
+        "player2": {
+          ".write": "auth.uid === data.parent().child('player2').val()"
         }
       }
     }
