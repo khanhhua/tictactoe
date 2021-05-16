@@ -35,7 +35,9 @@ boardElement onRequestToJoinGame onPlace cellRenderer cells =
         , onRequestToJoinGame
             |> Maybe.map (\onRequestToJoinGame_ ->
                 div []
-                    [ button [ onClick onRequestToJoinGame_, class "btn btn-primary mx-auto" ] [ text "Join game!" ]
+                    [ button [ onClick onRequestToJoinGame_, class "btn btn-primary d-block mx-auto mt-2" ]
+                        [ text "Join game!"
+                        ]
                     ]
             )
             |> Maybe.withDefault empty
