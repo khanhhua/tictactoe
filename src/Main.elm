@@ -58,7 +58,7 @@ type Msg
     | StartNewGame
     | RequestToJoinGame String
     | GotRequestToJoinGame (Result Error String)
-    | JoinGame String String
+    | AllowRequestToJoinGame String String
     | DenyGame String String
     | LeaveGame String
 
@@ -321,7 +321,7 @@ update msg model =
             ( { model
             | activeGameId = Just gameId
             }, cmd )
-        JoinGame gameId player2 ->
+        AllowRequestToJoinGame gameId player2 ->
             let
                 cmd = fbAllowJoinRequest ( E.object
                     [ ( "gameId", E.string gameId )
@@ -406,9 +406,6 @@ subscriptions _ =
 
 view : Model -> Html Msg
 view model =
-    let
-        cells = model.activeGame |> Maybe.map .cells
-    in
     div []
         [ nav [class "navbar navbar-expand-lg navbar-light bg-light mb-3"]
             [ span [ class("navbar-brand") ] [ text "Tic-Tac-Toe"  ]
@@ -428,23 +425,34 @@ view model =
         , div [ class("container") ]
             [ div [ class("row") ]
                 [ div [ class("col-3") ]
-                    [ gameListElement SelectActiveGame RequestToJoinGame model.profile model.gameList ]
+                    [ gameListElement SelectActiveGame model.profile model.gameList ]
                 , div [ class("col mx-auto") ]
-                    [ case cells of
-                        Just cells_ ->
-                            boardElement Place playerToken cells_
-                        Nothing -> empty
+                    [ if model.profile /= Nothing then
+                        Maybe.map4 (\gameId profile player2 cells ->
+                            if player2 == Nothing && gameId /= profile
+                            then boardElement (Just (RequestToJoinGame gameId)) Place playerToken cells
+                            else boardElement Nothing Place playerToken cells
+                        )
+                            (model.activeGame |> Maybe.map .id)
+                            (model.profile |> Maybe.map .uid)
+                            (model.activeGame |> Maybe.map .player2)
+                            (model.activeGame |> Maybe.map .cells)
+                        |> Maybe.withDefault empty
+                    else
+                        Maybe.map (boardElement Nothing Place playerToken)
+                            (model.activeGame |> Maybe.map .cells)
+                        |> Maybe.withDefault empty
                     ]
                 ,  div [ class("col-3") ]
                     [ model.profile
-                        |> Maybe.andThen (profileElement >> Just)
+                        |> Maybe.map profileElement
                         |> Maybe.withDefault empty
                     ]
                 ]
             ]
         , ( Maybe.map2 (\gameId requesterUid ->
                 requesterToastElement
-                    (JoinGame gameId requesterUid)
+                    (AllowRequestToJoinGame gameId requesterUid)
                     (DenyGame gameId requesterUid)
                 )
                 ( model.profile |> Maybe.map .uid )

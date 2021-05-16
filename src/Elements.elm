@@ -17,20 +17,29 @@ maybeElement : Maybe (Html msg) -> Html msg
 maybeElement e =
     e |> Maybe.withDefault empty
 
-boardElement : (Int -> Int -> msg) -> (String -> Html msg) -> List String -> Html msg
-boardElement onPlace cellRenderer cells =
+boardElement : Maybe msg -> (Int -> Int -> msg) -> (String -> Html msg) -> List String -> Html msg
+boardElement onRequestToJoinGame onPlace cellRenderer cells =
     div [ class("board mx-auto") ]
-        ( cells
-        |> nPartition 3
-        |> List.indexedMap (\y row ->
-            div [ class("row flex-grow-0") ]
-                ( row |> List.indexedMap (\x name ->
-                div [ class("col cell")
-                    , onClick (onPlace x y)
-                    ] [ cellRenderer name ] )
+        [ div []
+            ( cells
+            |> nPartition 3
+            |> List.indexedMap (\y row ->
+                div [ class("row flex-grow-0") ]
+                    ( row |> List.indexedMap (\x name ->
+                    div [ class("col cell")
+                        , onClick (onPlace x y)
+                        ] [ cellRenderer name ] )
+                    )
                 )
             )
-        )
+        , onRequestToJoinGame
+            |> Maybe.map (\onRequestToJoinGame_ ->
+                div []
+                    [ button [ onClick onRequestToJoinGame_, class "btn btn-primary mx-auto" ] [ text "Join game!" ]
+                    ]
+            )
+            |> Maybe.withDefault empty
+        ]
 
 profileElement : Profile -> Html msg
 profileElement p =
@@ -53,41 +62,19 @@ playerListElement : List Profile -> Html msg
 playerListElement playerProfiles =
     empty
 
-gameListElement : (String -> msg) -> (String -> msg) -> Maybe Profile -> List GameOverview -> Html msg
-gameListElement onSelectGame onRequestToJoinGame playerProfile gameList =
+gameListElement : (String -> msg) -> Maybe Profile -> List GameOverview -> Html msg
+gameListElement onSelectGame playerProfile gameList =
     ul [ class("list-group") ]
         ( gameList
         |> List.map (\game ->
             li [ class("list-group-item list-group-item-action d-flex align-items-center")
                ]
-                ([ text game.title
+                [ text game.title
+                , button
+                    [ class "ml-auto btn btn-sm btn-info"
+                    , onClick (onSelectGame game.id)
+                    ] [ text "View" ]
                 ]
-                ++
-                case playerProfile |> Maybe.map .uid of
-                    Just playerProfileUid -> if playerProfileUid /= game.id
-                        then
-                        [ button
-                            [ class "ml-auto btn btn-sm btn-primary"
-                            , onClick (onRequestToJoinGame game.id)
-                            ] [ text "Join" ]
-                        , button
-                            [ class "ml-1 btn btn-sm btn-info"
-                            , onClick (onSelectGame game.id)
-                            ] [ text "View" ]
-                        ]
-                        else
-                        [ button
-                           [ class "ml-auto btn btn-sm btn-info"
-                           , onClick (onSelectGame game.id)
-                           ] [ text "View" ]
-                        ]
-                    Nothing ->
-                        [ button
-                            [ class "ml-auto btn btn-sm btn-info"
-                            , onClick (onSelectGame game.id)
-                            ] [ text "View" ]
-                        ]
-                )
             )
         )
 
