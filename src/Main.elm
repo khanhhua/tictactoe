@@ -3,8 +3,8 @@ port module Main exposing (main)
 import Browser exposing (Document)
 import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
-import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement)
-import Html exposing (Html, button, div, h1, h5, li, nav, span, text, ul)
+import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement, requesterToastElement)
+import Html exposing (Html, button, div, h1, h5, li, nav, p, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import List exposing (range)
@@ -17,8 +17,9 @@ port fbLogin : () -> Cmd msg
 port fbSelectActiveGame : String -> Cmd msg
 port fbUpdateCells : Value -> Cmd msg
 port fbStartNewGame : Value -> Cmd msg
-port fbJoinGame : Value -> Cmd msg
+port fbAllowJoinRequest : Value -> Cmd msg
 port fbRequestToJoinGame : Value -> Cmd msg
+port fbDenyJoinRequest : Value -> Cmd msg
 port fbLeaveGame : Value -> Cmd msg
 
 -- TODO Refactor into a separate engine
@@ -58,6 +59,7 @@ type Msg
     | RequestToJoinGame String
     | GotRequestToJoinGame (Result Error String)
     | JoinGame String String
+    | DenyGame String String
     | LeaveGame String
 
 cellIndex : Int -> Int -> Int
@@ -321,7 +323,7 @@ update msg model =
             }, cmd )
         JoinGame gameId player2 ->
             let
-                cmd = fbJoinGame ( E.object
+                cmd = fbAllowJoinRequest ( E.object
                     [ ( "gameId", E.string gameId )
                     , ( "player2", E.string player2 )
                     ] )
@@ -337,6 +339,16 @@ update msg model =
                     | requesterList = requesterUid :: model.requesterList
                     }, Cmd.none )
                 _ -> ( model, Cmd.none )
+        DenyGame gameId requesterUid ->
+            let
+                value = E.object
+                    [ ( "gameId", E.string gameId )
+                    , ( "player2", E.string requesterUid )
+                    ]
+                requesterList = model.requesterList
+                    |> List.filter (requesterUid |> (/=))
+            in
+                ( { model | requesterList = requesterList }, fbDenyJoinRequest value )
         LeaveGame gameId ->
             let
                 cmd = Maybe.map2 (\profile player1 ->
@@ -427,29 +439,18 @@ view model =
                     [ model.profile
                         |> Maybe.andThen (profileElement >> Just)
                         |> Maybe.withDefault empty
-                    , model.profile
-                        |> Maybe.andThen ((\profile ->
-                            div []
-                                [ h5 [] [ text "Requestors" ]
-                                , ul [ class "list-group" ]
-                                    ( model.requesterList
-                                    |> List.map (\requesterUid ->
-                                        li [ class "list-group-item d-flex" ]
-                                            [ text requesterUid
-                                            , button
-                                                [ class "btn btn-sm btn-primary ml-auto"
-                                                , onClick (JoinGame profile.uid requesterUid)
-                                                ]
-                                                [ text "Accept"
-                                                ]
-                                            ])
-                                    )
-                                ]
-                            ) >> Just )
-                        |> Maybe.withDefault empty
                     ]
                 ]
             ]
+        , ( Maybe.map2 (\gameId requesterUid ->
+                requesterToastElement
+                    (JoinGame gameId requesterUid)
+                    (DenyGame gameId requesterUid)
+                )
+                ( model.profile |> Maybe.map .uid )
+                ( model.requesterList |> List.head )
+            )
+            |> Maybe.withDefault empty
         , Maybe.map4 (\message gameId profile owner ->
             if profile == owner
             then

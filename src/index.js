@@ -58,7 +58,8 @@ app.ports.fbLogin.subscribe(async () => {
                 activePlayer: user.uid,
             });
         }
-        firebase.database().ref(`games/${user.uid}/requests`).on('child_added', (snapshot) => {
+        console.log(`Listening on players/${user.uid}/requests...`);
+        firebase.database().ref(`players/${user.uid}/requests`).on('child_added', (snapshot) => {
             const requesterUid = snapshot.val();
             console.log('requesterUid', requesterUid);
             app.ports.firebaseInput.send(['requester', requesterUid]);
@@ -90,11 +91,29 @@ app.ports.fbSelectActiveGame.subscribe((gameId) => {
 });
 
 app.ports.fbRequestToJoinGame.subscribe(async ({ gameId, player2 }) => {
-    await firebase.database().ref(`games/${gameId}/requests`).push(player2);
+    await firebase.database().ref(`players/${gameId}/requests`).push(player2);
 });
 
-app.ports.fbJoinGame.subscribe(async ({ gameId, player2 }) => { // Received when player1 allows player2 to join
-    await firebase.database().ref(`games/${gameId}`).update({ player2, requests: null });
+app.ports.fbAllowJoinRequest.subscribe(async ({ gameId, player2 }) => { // Received when player1 allows player2 to join
+    const updates = {
+        [`players/${gameId}/requests`]: null,
+        [`games/${gameId}/player2`]: player2,
+    };
+    await firebase.database().ref().update(updates);
+});
+
+app.ports.fbDenyJoinRequest.subscribe(async ({ gameId, player2 }) => { // Received when player1 allows player2 to join
+    await Promise.all([
+        firebase.database().ref(`players/${gameId}/requests`).transaction((requests) => {
+            console.log({ requests });
+            return Object.entries(requests)
+                .filter(([_, value]) => value !== player2)
+                .reduce((acc, [key, value]) => {
+                    acc[key] = value;
+                    return acc;
+                }, {});
+        }),
+    ]);
 });
 
 app.ports.fbUpdateCells.subscribe(async ({ gameId, cells, activePlayer, winner }) => {

@@ -1,7 +1,7 @@
 module Elements exposing (..)
 
-import Html exposing (Html, button, div, h5, li, p, span, text, ul)
-import Html.Attributes exposing (class, tabindex)
+import Html exposing (Html, button, div, h5, li, p, small, span, strong, text, ul)
+import Html.Attributes exposing (class, style, tabindex)
 import Html.Events exposing (onClick)
 import Models exposing (GameOverview, Profile)
 
@@ -90,6 +90,24 @@ gameListElement onSelectGame onRequestToJoinGame playerProfile gameList =
                 )
             )
         )
+
+requesterToastElement : msg -> msg -> Html msg
+requesterToastElement onAccept onCancel =
+    div [ class "position-fixed top-0 right-0 p-3" ]
+        [ div [ class "toast", style "opacity" "1" ]
+            [ div [ class "toast-header" ]
+                [ small [ class "mr-auto" ] [ text "Few seconds ago" ]
+                , button [ class "btn btn-link btn-sm", onClick onCancel ]
+                    [ span [] [text "Close" ]
+                    ]
+                ]
+            , div [ class "toast-body" ]
+                [ p [] [ text "Some has requested to join your game" ]
+                , button [ class "btn btn-primary btn-sm mx-auto", onClick onAccept ] [ text "Accept" ]
+                ]
+            ]
+        ]
+
 
 gameoverModalElement: String -> Maybe msg -> Maybe msg -> Html msg
 gameoverModalElement message onRestart onLeave =
