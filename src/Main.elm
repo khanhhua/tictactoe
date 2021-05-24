@@ -9,8 +9,8 @@ import Html exposing (Html, button, div, h1, h5, li, nav, p, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import List exposing (range)
+import Logic exposing (checkWinner)
 import Models exposing (Game, GameOverview, Profile, decodeGame, decodeGameOverview, decodeProfile)
-import Array as A exposing (Array)
 import Task
 
 import Port.FirebaseApp as F exposing (FirebaseMsg(..), firebaseUpdate)
@@ -48,7 +48,6 @@ type Msg
     | DidCloseChannel String
     | GotRequestToJoinGame String
     | SelectActiveGame String
-    | DeselectActiveGame String
     | GameListUpdated (List GameOverview)
     | Place Int Int
     | PlaceComplete Bool
@@ -66,75 +65,6 @@ type Msg
     | LeaveGameComplete Bool
     | FB (F.FirebaseMsg Msg)
     | FirebaseInitialized
-
-cellIndex : Int -> Int -> Int
-cellIndex x y = y * 3 + x
-
-matcher : String -> (Maybe String, Bool) -> (Maybe String, Bool)
-matcher s ( curr, match ) =
-    ( Just s,
-        if not match then match
-        else case curr of
-            Nothing -> True
-            Just "-" -> False
-            Just value -> value == s
-    )
-
-checkColumnAt : Array String -> Int -> Bool
-checkColumnAt cells x =
-    (range 0 2)
-        |> List.map (\y -> A.get ( cellIndex x y ) cells)
-        |> List.filterMap identity
-        |> List.foldl matcher ( Nothing, True )
-        |> (\( _, match ) -> match)
-
-checkRowAt : Array String -> Int -> Bool
-checkRowAt cells y =
-    (range 0 2)
-        |> List.map (\x -> A.get (cellIndex x y) cells)
-        |> List.filterMap identity
-        |> List.foldl matcher ( Nothing, True )
-        |> (\( _, match ) -> match)
-
-checkDiagonals : Array String -> Bool
-checkDiagonals cells =
-    let
-        nwse =
-            (List.map2 (\x y -> (x, y))
-                (range 0 2)
-                (range 0 2)
-            )
-            |> List.map (\(x, y) -> A.get (cellIndex x y) cells)
-            |> List.filterMap identity
-            |> List.foldl matcher ( Nothing, True )
-            |> (\( _, match ) -> match)
-        swne =
-            (List.map2 (\x y -> (x, y))
-                (range 0 2)
-                ((range 0 2) |> List.reverse)
-            )
-            |> List.map (\(x, y) -> A.get (cellIndex x y) cells)
-            |> List.filterMap identity
-            |> List.foldl matcher ( Nothing, True )
-            |> (\( _, match ) -> match)
-    in
-        nwse || swne
-
-checkWinner : List String -> ( Int, Int ) -> Maybe String
-checkWinner cells (x, y) =
-    let
-        arr = A.fromList cells
-        winner = (A.get ( cellIndex x y ) arr)
-            |> Maybe.andThen (\s ->
-                if s == "-" then
-                   Nothing
-                else if (checkColumnAt arr x) || (checkRowAt arr y) || (checkDiagonals arr) then
-                    Just s
-                else
-                    Nothing
-            )
-    in
-        winner
 
 playerToken : String -> Html msg
 playerToken token =
@@ -325,8 +255,7 @@ update msg model =
                                 )
                         refPath = E.string ( "games/" ++ gameId )
                         value = E.object
-                            ( [ ( "gameId", E.string gameId )
-                            , ( "activePlayer", E.string activePlayer )
+                            ( [ ( "activePlayer", E.string activePlayer )
                             , ( "cells", E.string (cells |> String.join "") )
                             ] ++
                             ( case winner of

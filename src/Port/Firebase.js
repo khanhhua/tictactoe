@@ -253,7 +253,7 @@ const callbacks = {
             ports.firebaseInput.send(['$$stream', packet]);
         };
 
-        console.log(`Listening on ${firebasePath}:${eventType}...`);
+        console.info(`Listening on ${firebasePath}:${eventType}...`);
         firebase.database().ref(firebasePath).on(eventType, callback);
         const destroyer = () => {
             firebase.database().ref(firebasePath).off(eventType, callback);
@@ -264,7 +264,6 @@ const callbacks = {
                 channels: [ ...state.channels, channel ],
                 destroyers: [ ...state.destroyers, destroyer ],
             },
-            $$fn: 'fbListenOn',
             ...tagReturn(channel),
         };
     },
@@ -286,7 +285,6 @@ const callbacks = {
 
         return {
             $$nextState: nextState,
-            $$fn: 'fbListenOff',
             ...tagReturn(true),
         };
     }
