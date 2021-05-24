@@ -1,6 +1,7 @@
 port module Main exposing (main)
 
 import Browser exposing (Document)
+import Dict
 import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
 import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement, requesterToastElement)
@@ -8,23 +9,13 @@ import Html exposing (Html, button, div, h1, h5, li, nav, p, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import List exposing (range)
-import Models exposing (Game, GameOverview, Profile, TaggedValue, decodeGame, decodeGameOverview, decodeProfile, decodeTaggedValue)
+import Models exposing (Game, GameOverview, Profile, decodeGame, decodeGameOverview, decodeProfile)
 import Array as A exposing (Array)
 import Task
 
-port bootstrap : String -> Cmd msg
-port fbLogin : () -> Cmd msg
-port fbSelectActiveGame : String -> Cmd msg
-port fbUpdateCells : Value -> Cmd msg
-port fbStartNewGame : Value -> Cmd msg
-port fbAllowJoinRequest : Value -> Cmd msg
-port fbRequestToJoinGame : Value -> Cmd msg
-port fbDenyJoinRequest : Value -> Cmd msg
-port fbLeaveGame : Value -> Cmd msg
+import Port.FirebaseApp as F exposing (FirebaseMsg(..), firebaseUpdate)
 
--- TODO Refactor into a separate engine
-port firebaseInput : (Value -> msg) -> Sub msg  -- Taking input from Firebase
-port firebaseOutput : Value -> Cmd msg          -- Sending output to Firebase
+port bootstrap : String -> Cmd msg
 
 
 main : Program () Model Msg
@@ -36,31 +27,45 @@ main = Browser.element
     }
 
 type alias Model =
-    { profile : Maybe Profile
+    { initialized : Bool
     , busy : Bool
+    , profile : Maybe Profile
     , activeGameId : Maybe String
     , activeGame : Maybe Game
     , gameList : List GameOverview
     , requesterList : List String
     , modalMessage : Maybe String
+    , channels : List String
+    , fbModel : F.Model Msg -- F.Model is only aware of Msg defined actions (serialization - deserialization)
     }
 
 type Msg
     = NoOp
     | Login
-    | LoginComplete (Result Error Profile)
+    | LoginComplete Profile
+    | GotMyGameOverview (Maybe GameOverview)
+    | DidOpenChannel String
+    | DidCloseChannel String
+    | GotRequestToJoinGame String
     | SelectActiveGame String
-    | SelectActiveGameComplete (Result Error Game)
-    | GameListUpdated (Result Error (List GameOverview))
+    | DeselectActiveGame String
+    | GameListUpdated (List GameOverview)
     | Place Int Int
-    | GameUpdated (Result Error Game)
+    | PlaceComplete Bool
+    | GameUpdated Game
     | ShowModal String
     | StartNewGame
+    | StartNewGameComplete Bool
     | RequestToJoinGame String
-    | GotRequestToJoinGame (Result Error String)
+    | RequestToJoinGameComplete Bool
     | AllowRequestToJoinGame String String
+    | AllowRequestToJoinGameComplete String String
     | DenyGame String String
+    | DenyGameComplete String String
     | LeaveGame String
+    | LeaveGameComplete Bool
+    | FB (F.FirebaseMsg Msg)
+    | FirebaseInitialized
 
 cellIndex : Int -> Int -> Int
 cellIndex x y = y * 3 + x
@@ -135,38 +140,127 @@ playerToken : String -> Html msg
 playerToken token =
     span [ class("player-token player-token-" ++ token) ] [ text " " ]
 
+
+firebaseInstance =
+    F.firebaseApp FB
+    |> F.config
+        [ ( "apiKey", "AIzaSyBB6mJ8zC4HeqpnznHVnrqvu7vq3i05HQU" )
+        , ( "authDomain", "tictactoe-7d2d5.firebaseapp.com" )
+        , ( "projectId", "tictactoe-7d2d5" )
+        , ( "storageBucket", "tictactoe-7d2d5.appspot.com")
+        , ( "messagingSenderId", "1060266018339" )
+        , ( "appId", "1:1060266018339:web:c3a29cb4f0361ab8435396" )
+        , ( "databaseURL", "https://tictactoe-7d2d5-default-rtdb.europe-west1.firebasedatabase.app/" )
+        ]
+
 init : () -> ( Model , Cmd Msg )
-init _ = (
-    { profile = Nothing
-    , busy = False
-    , activeGameId = Nothing
-    , activeGame = Nothing
-    , gameList = []
-    , requesterList = []
-    , modalMessage = Nothing
-    }, Cmd.none )
+init _ =
+    ( { busy = False
+        , initialized = False
+        , profile = Nothing
+        , activeGameId = Nothing
+        , activeGame = Nothing
+        , gameList = []
+        , requesterList = []
+        , modalMessage = Nothing
+        , fbModel = F.init firebaseInstance
+        , channels = []
+        }
+    , F.initialize firebaseInstance ( F.expectEmpty FirebaseInitialized )
+    )
+
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Login ->
-            ( { model | busy = True }, fbLogin() )
-        LoginComplete result ->
+        FirebaseInitialized ->
             let
-                profile = case result of
-                    Ok value -> Just value
-                    Err _ -> Nothing
+                decodeDictToList = D.dict decodeGameOverview
+                    |> D.andThen ( Dict.values >> D.succeed )
+
+                cmd = F.listenOn firebaseInstance "gameList" "value"
+                    ( F.expect DidOpenChannel D.string )
+                    ( F.expect GameListUpdated decodeDictToList )
+            in
+            ( { model | initialized = True }, cmd )
+        Login ->
+            ( { model | busy = True },
+            F.call firebaseInstance "fbLogin" ( F.expect LoginComplete decodeProfile )
+            )
+        LoginComplete profile ->
+            let
+                refPath = E.string ( "gameList/" ++ profile.uid )
             in
             ( { model
-            | busy = False, profile = profile }, Cmd.none
+            | profile = Just profile },
+            F.call1 firebaseInstance "fbGetValueAt" refPath ( F.expect GotMyGameOverview ( D.maybe decodeGameOverview ) )
             )
+        GotMyGameOverview Nothing ->
+            let
+                cmd = model.profile
+                    |> Maybe.map (\profile ->
+                        let
+                            value = E.object
+                                [ ( "id", E.string profile.uid )
+                                , ( "cells", E.string "---------" )
+                                , ( "player1", E.string profile.uid )
+                                , ( "activePlayer", E.string profile.uid )
+                                ]
+                        in
+                        ( E.string ( "gameList/" ++ profile.uid ), value )
+                    )
+                    |> Maybe.map (\( refPath, value ) ->
+                        F.call2 firebaseInstance "fbSetValueAt" refPath value ( F.expectEmpty NoOp )
+                    )
+                    |> Maybe.withDefault Cmd.none
+            in
+            ( model, cmd )
+        GotMyGameOverview (Just _) ->
+            let
+                cmd = model.profile
+                    |> Maybe.map (\profile ->
+                        let
+                            refPath = String.join "" ["players/", profile.uid, "/requests"]
+                            eventType = "child_added"
+                        in
+                        ( refPath, eventType )
+                    )
+                    |> Maybe.map (\( refPath, eventType ) ->
+                        F.listenOn firebaseInstance refPath eventType
+                            ( F.expect DidOpenChannel D.string )
+                            ( F.expect GotRequestToJoinGame D.string )
+                    )
+                    |> Maybe.withDefault Cmd.none
+            in
+            ( model, cmd )
+        DidOpenChannel channel ->
+            ( { model | channels = channel :: model.channels }, Cmd.none )
+        DidCloseChannel channel ->
+            ( { model | channels = model.channels |> List.filter ( (/=) channel ) }, Cmd.none )
         SelectActiveGame gameId ->
-            ( { model
-            | busy = True
-            , activeGameId = Just gameId
-            }, fbSelectActiveGame(gameId) )
-        SelectActiveGameComplete result ->
-            ( model, Cmd.none )
+            let
+                cmdDeselect = Maybe.map (\activeGameId ->
+                        let
+                            channel = ( "games/" ++ activeGameId ++ ":value" )
+                        in
+                            F.listenOff firebaseInstance channel
+                                ( F.expect (\bool ->
+                                  if bool then DidCloseChannel channel
+                                  else NoOp
+                                  ) D.bool
+                                )
+                    ) model.activeGameId
+                    |> Maybe.withDefault Cmd.none
+
+                cmdSelect = F.listenOn firebaseInstance ( "games/" ++ gameId ) "value"
+                    ( F.expect DidOpenChannel D.string )
+                    ( F.expect GameUpdated decodeGame )
+            in
+            ( { model | activeGameId = Just gameId }, Cmd.batch
+                [ cmdSelect
+                , cmdDeselect
+                ]
+            )
         Place x y ->
             let
                 {- maybeToken is functionally dependant on
@@ -219,64 +313,68 @@ update msg model =
             case param of
                 Just (gameId, cells, activePlayer) ->
                     let
-                        winner = Maybe.map2 (\player1 player2 ->
+                        winner = Maybe.andThen (\(player1, player2) ->
                             case checkWinner cells (x, y) of
-                                Just "1" -> player1
-                                Just "2" -> player2
-                                _ -> "None"
+                                Just "1" -> Just player1
+                                Just "2" -> Just player2
+                                _ -> Nothing
                             )
-                                (model.activeGame |> Maybe.map .player1)
-                                (model.activeGame |> Maybe.andThen .player2)
+                                ( Maybe.map2 (\p1 p2 -> ( p1, p2 ) )
+                                    (model.activeGame |> Maybe.map .player1)
+                                    (model.activeGame |> Maybe.andThen .player2)
+                                )
+                        refPath = E.string ( "games/" ++ gameId )
                         value = E.object
-                            [ ( "gameId", E.string gameId )
+                            ( [ ( "gameId", E.string gameId )
                             , ( "activePlayer", E.string activePlayer )
                             , ( "cells", E.string (cells |> String.join "") )
-                            , ( "winner", winner |> Maybe.withDefault "None" |> E.string )
-                            ]
+                            ] ++
+                            ( case winner of
+                                Just winner_ ->
+                                    [ ( "winner", winner_ |> E.string )
+                                    ]
+                                _ -> []
+                            ) )
+                        cmd = F.call2 firebaseInstance "fbUpdateValueAt" refPath value
+                            ( F.expect PlaceComplete D.bool )
                     in
-                    ( model, fbUpdateCells value )
+                    ( model, cmd )
                 Nothing -> ( model, Cmd.none)
-        GameListUpdated result ->
-            case result of
-                Ok gameList ->
-                    ( { model | gameList = gameList }, Cmd.none )
-                _ ->
-                    ( model, Cmd.none )
-        GameUpdated result ->
-            case result of
-                Ok game ->
-                    let
-                        ( updatedModel, cmd ) = if (game.winner == Nothing) && (model.modalMessage /= Nothing)
-                            then
-                                ( { model
-                                | activeGame = Just game
-                                , modalMessage = Nothing
-                                }, bootstrap "modal.hide" )
-                            else
-                                ( { model | activeGame = case model.activeGameId of
-                                    Nothing -> Nothing
-                                    Just activeGameId -> if game.id == activeGameId
-                                        then Just game
-                                        else Nothing
-                                }
-                                , ( Maybe.map3
-                                        (\_ winner profile ->
-                                            Cmd.batch
-                                                [ bootstrap "show.modal"
-                                                , if winner == profile
-                                                    then Task.perform ShowModal (Task.succeed "You won!")
-                                                    else Task.perform ShowModal (Task.succeed "You lose!")
-                                                ]
-                                            )
-                                        game.player2
-                                        game.winner
-                                        (model.profile |> Maybe.map .uid)
+        PlaceComplete bool ->
+            ( model, Cmd.none )
+        GameListUpdated gameList ->
+            ( { model | gameList = gameList }, Cmd.none )
+        GameUpdated game ->
+            let
+                ( updatedModel, cmd ) = if (game.winner == Nothing) && (model.modalMessage /= Nothing)
+                    then
+                        ( { model
+                        | activeGame = Just game
+                        , modalMessage = Nothing
+                        }, bootstrap "modal.hide" )
+                    else
+                        ( { model | activeGame = case model.activeGameId of
+                            Nothing -> Nothing
+                            Just activeGameId -> if game.id == activeGameId
+                                then Just game
+                                else Nothing
+                        }
+                        , ( Maybe.map3
+                                (\_ winner profile ->
+                                    Cmd.batch
+                                        [ bootstrap "show.modal"
+                                        , if winner == profile
+                                            then Task.perform ShowModal (Task.succeed "You won!")
+                                            else Task.perform ShowModal (Task.succeed "You lose!")
+                                        ]
                                     )
-                                |> Maybe.withDefault Cmd.none)
-                    in
-                    ( updatedModel, cmd )
-                _ ->
-                    ( model, Cmd.none )
+                                game.player2
+                                game.winner
+                                (model.profile |> Maybe.map .uid)
+                            )
+                        |> Maybe.withDefault Cmd.none)
+            in
+            ( updatedModel, cmd )
         ShowModal message ->
             ( { model | modalMessage = Just message } , Cmd.none )
         StartNewGame ->
@@ -287,15 +385,15 @@ update msg model =
                             if profile == owner then
                                 let
                                     activePlayer = if player2 == Nothing then owner else winner
-                                in
-                                fbStartNewGame
-                                    ( E.object
-                                        [ ( "gameId", E.string gameId )
-                                        , ( "activePlayer", E.string activePlayer )
-                                        , ( "cells", E.string  "---------" )
+                                    refPath = E.string ( "games/" ++ gameId )
+                                    value = E.object
+                                        [ ( "activePlayer", E.string activePlayer )
+                                        , ( "cells", E.string "---------" )
                                         , ( "winner", E.null )
                                         ]
-                                    )
+                                in
+                                F.call2 firebaseInstance "fbUpdateValueAt" refPath  value
+                                    ( F.expect StartNewGameComplete D.bool )
                             else
                                 Cmd.none
                         )
@@ -311,56 +409,74 @@ update msg model =
         RequestToJoinGame gameId ->
             let
                 cmd = Maybe.map (\player2 ->
-                        fbRequestToJoinGame ( E.object
-                            [ ( "gameId", E.string gameId )
-                            , ( "player2", E.string player2 )
-                            ] )
+                        let
+                            refPath = E.string ( "players/" ++ gameId ++ "/requests" )
+                            playerId = E.string player2
+                        in
+                        F.call2 firebaseInstance "fbPushValue" refPath playerId
+                            ( F.expect RequestToJoinGameComplete D.bool )
                     ) (model.profile |> Maybe.map .uid)
                     |> Maybe.withDefault Cmd.none
             in
             ( { model
             | activeGameId = Just gameId
             }, cmd )
+        RequestToJoinGameComplete result ->
+            ( model, Cmd.none )
         AllowRequestToJoinGame gameId player2 ->
             let
-                cmd = fbAllowJoinRequest ( E.object
-                    [ ( "gameId", E.string gameId )
-                    , ( "player2", E.string player2 )
-                    ] )
+                updates = E.object
+                    [ ( "players/" ++ gameId ++ "/requests", E.null )
+                    , ( "games/" ++ gameId ++ "/player2", E.string player2)
+                    ]
+
+                cmd = F.call1 firebaseInstance "fbMultiUpdate" updates
+                    ( F.expect (\bool ->
+                            if bool then AllowRequestToJoinGameComplete gameId player2
+                            else NoOp
+                        ) D.bool )
             in
+            ( { model | activeGameId = Just gameId }
+            , cmd )
+        AllowRequestToJoinGameComplete _ _ ->
+            ( { model | requesterList = [] }, Cmd.none )
+        GotRequestToJoinGame requesterUid ->
+            -- Debug.log ("GotRequestToJoinGame:" ++ requesterUid)
             ( { model
-            | activeGameId = Just gameId
-            , requesterList = []
-            }, cmd )
-        GotRequestToJoinGame result ->
-            case result of
-                Ok requesterUid ->
-                    ( { model
-                    | requesterList = requesterUid :: model.requesterList
-                    }, Cmd.none )
-                _ -> ( model, Cmd.none )
+            | requesterList = requesterUid :: model.requesterList
+            }, Cmd.none )
         DenyGame gameId requesterUid ->
             let
-                value = E.object
-                    [ ( "gameId", E.string gameId )
-                    , ( "player2", E.string requesterUid )
-                    ]
-                requesterList = model.requesterList
-                    |> List.filter (requesterUid |> (/=))
+                refPath = E.string ( "players/" ++  gameId ++ "/requests" )
+                value = E.string requesterUid
             in
-                ( { model | requesterList = requesterList }, fbDenyJoinRequest value )
+                ( model
+                , F.call2 firebaseInstance "fbRemoveValueFromList" refPath value
+                    ( F.expect (\bool ->
+                            if bool
+                            then DenyGameComplete gameId requesterUid
+                            else NoOp
+                        ) D.bool
+                    )
+                )
+        DenyGameComplete _ requesterUid ->
+            ( { model | requesterList = model.requesterList |> List.filter ( (/=) requesterUid ) }, Cmd.none )
         LeaveGame gameId ->
             let
                 cmd = Maybe.map2 (\profile player1 ->
+                    let
+                        refPath = E.string ( "games/" ++ gameId )
+                        value = E.object
+                            [ ( "activePlayer", E.string player1 )
+                            , ( "player2", E.null )
+                            ]
+                        cmd2 = F.call2 firebaseInstance "fbUpdateValueAt" refPath value
+                            ( F.expect LeaveGameComplete D.bool )
+                    in
                     if profile /= player1
                     then
                         Cmd.batch
-                            [ fbLeaveGame
-                                ( E.object
-                                    [ ( "gameId", E.string gameId )
-                                    , ( "activePlayer", E.string player1 )
-                                    ]
-                                )
+                            [ cmd2
                             , bootstrap "modal.hide"
                             ]
                     else
@@ -377,38 +493,27 @@ update msg model =
                 | activeGame = Nothing
                 , modalMessage = Nothing
                 }, cmd )
+        LeaveGameComplete bool ->
+            ( model, Cmd.none )
+        FB fbMsg ->
+            let
+                ( updatedModel, fbCmd ) = firebaseUpdate fbMsg model.fbModel
+            in
+            ( { model | fbModel = updatedModel }, fbCmd )
         _ ->
             ( model, Cmd.none )
 
 -- SUBSCRIPTIONS
 
-firebaseMsgRouter : Result Error TaggedValue -> Msg
-firebaseMsgRouter result =
-    case result of
-        Err _ -> NoOp
-        Ok taggedValue ->
-            case taggedValue.tag of
-                "profile" ->
-                    taggedValue.value |> D.decodeValue decodeProfile |> LoginComplete
-                "gameList" ->
-                    taggedValue.value |> D.decodeValue (D.list decodeGameOverview) |> GameListUpdated
-                "game" ->
-                    taggedValue.value |> D.decodeValue decodeGame |> GameUpdated
-                "requester" ->
-                    taggedValue.value |> D.decodeValue D.string |> GotRequestToJoinGame
-                _ -> NoOp
-
 subscriptions : Model -> Sub Msg
-subscriptions _ =
-    Sub.batch
-        [ firebaseInput (D.decodeValue decodeTaggedValue >> firebaseMsgRouter)
-        ]
+subscriptions model =
+    Sub.map FB (firebaseInstance.subscriptions model.fbModel)
 
 view : Model -> Html Msg
 view model =
     div []
         [ nav [class "navbar navbar-expand-lg navbar-light bg-light mb-3"]
-            [ span [ class("navbar-brand") ] [ text "Tic-Tac-Toe"  ]
+            [ span [ class("navbar-brand") ] [ text "Tic-Tac-Toe" ]
             , ul [ class("navbar-nav ml-auto") ]
                 [ li [ class("nav-item") ]
                     [ case model.profile of

@@ -24,11 +24,6 @@ type alias Game =
     , winner : Maybe String
     }
 
-type alias TaggedValue =
-    { tag : String
-    , value : Value
-    }
-
 makeAnonProfile : String -> Profile
 makeAnonProfile uid = Profile uid True Nothing
 
@@ -59,11 +54,3 @@ decodeGameOverview =
     D.map2 GameOverview
         (D.field "id" D.string)
         (D.field "title" D.string)
-
-{-| Decode external JSON VALUE passed on from port in form of [tag String, value]
--}
-decodeTaggedValue : Decoder TaggedValue
-decodeTaggedValue =
-    D.map2 TaggedValue
-        (D.at ["0"] D.string)
-        (D.at ["1"] D.value)
