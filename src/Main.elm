@@ -127,7 +127,25 @@ update msg model =
             )
         GotMyGameOverview Nothing ->
             let
-                cmd = model.profile
+                cmdGameListItem = model.profile
+                    |> Maybe.map (\profile ->
+                        let
+                            value = E.object
+                                [ ( "id", E.string profile.uid )
+                                , ( "title", profile.uid
+                                    |> String.slice 0 9
+                                    |> \uid -> String.append uid "'s game"
+                                    |> E.string
+                                    )
+                                ]
+                        in
+                        ( E.string ( "gameList/" ++ profile.uid ), value )
+                    )
+                    |> Maybe.map (\( refPath, value ) ->
+                        F.call2 firebaseInstance "fbUpdateValueAt" refPath value ( F.expectEmpty NoOp )
+                    )
+                    |> Maybe.withDefault Cmd.none
+                cmdGame = model.profile
                     |> Maybe.map (\profile ->
                         let
                             value = E.object
@@ -137,14 +155,14 @@ update msg model =
                                 , ( "activePlayer", E.string profile.uid )
                                 ]
                         in
-                        ( E.string ( "gameList/" ++ profile.uid ), value )
+                        ( E.string ( "games/" ++ profile.uid ), value )
                     )
                     |> Maybe.map (\( refPath, value ) ->
-                        F.call2 firebaseInstance "fbSetValueAt" refPath value ( F.expectEmpty NoOp )
+                        F.call2 firebaseInstance "fbUpdateValueAt" refPath value ( F.expectEmpty NoOp )
                     )
                     |> Maybe.withDefault Cmd.none
             in
-            ( model, cmd )
+            ( model, Cmd.batch [ cmdGameListItem, cmdGame ])
         GotMyGameOverview (Just _) ->
             let
                 cmd = model.profile
