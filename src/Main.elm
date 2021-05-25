@@ -127,42 +127,43 @@ update msg model =
             )
         GotMyGameOverview Nothing ->
             let
-                cmdGameListItem = model.profile
+                -- F.call2 firebaseInstance "fbUpdateValueAt" refPath value ( F.expectEmpty NoOp )
+                gameListItem = model.profile
                     |> Maybe.map (\profile ->
-                        let
-                            value = E.object
-                                [ ( "id", E.string profile.uid )
-                                , ( "title", profile.uid
-                                    |> String.slice 0 9
-                                    |> \uid -> String.append uid "'s game"
-                                    |> E.string
-                                    )
-                                ]
-                        in
-                        ( E.string ( "gameList/" ++ profile.uid ), value )
-                    )
-                    |> Maybe.map (\( refPath, value ) ->
-                        F.call2 firebaseInstance "fbUpdateValueAt" refPath value ( F.expectEmpty NoOp )
-                    )
-                    |> Maybe.withDefault Cmd.none
-                cmdGame = model.profile
+                        E.object
+                            [ ( "id", E.string profile.uid )
+                            , ( "title", profile.uid
+                                |> String.slice 0 9
+                                |> \uid -> String.append uid "'s game"
+                                |> E.string
+                                )
+                            ]
+                        )
+                game = model.profile
                     |> Maybe.map (\profile ->
-                        let
-                            value = E.object
-                                [ ( "id", E.string profile.uid )
-                                , ( "cells", E.string "---------" )
-                                , ( "player1", E.string profile.uid )
-                                , ( "activePlayer", E.string profile.uid )
-                                ]
-                        in
-                        ( E.string ( "games/" ++ profile.uid ), value )
+                        E.object
+                            [ ( "id", E.string profile.uid )
+                            , ( "cells", E.string "---------" )
+                            , ( "player1", E.string profile.uid )
+                            , ( "activePlayer", E.string profile.uid )
+                            ]
                     )
-                    |> Maybe.map (\( refPath, value ) ->
-                        F.call2 firebaseInstance "fbUpdateValueAt" refPath value ( F.expectEmpty NoOp )
+
+                cmd = ( Maybe.map3 (\uid gameListItem_ game_ ->
+                            E.object
+                                [ ( "gameList/" ++ uid, gameListItem_ )
+                                , ( "games/" ++ uid, game_ )
+                                ] )
+                        ( model.profile |> Maybe.map .uid )
+                        gameListItem
+                        game
+                    )
+                    |> Maybe.map (\value -> F.call1 firebaseInstance "fbMultiUpdate" value
+                        ( F.expectEmpty NoOp )
                     )
                     |> Maybe.withDefault Cmd.none
             in
-            ( model, Cmd.batch [ cmdGameListItem, cmdGame ])
+            ( model, cmd )
         GotMyGameOverview (Just _) ->
             let
                 cmd = model.profile
