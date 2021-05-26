@@ -127,7 +127,6 @@ update msg model =
             )
         GotMyGameOverview Nothing ->
             let
-                -- F.call2 firebaseInstance "fbUpdateValueAt" refPath value ( F.expectEmpty NoOp )
                 gameListItem = model.profile
                     |> Maybe.map (\profile ->
                         E.object
@@ -479,7 +478,7 @@ view model =
             [ div [ class("row") ]
                 [ div [ class("col-3") ]
                     [ gameListElement SelectActiveGame model.profile model.gameList ]
-                , div [ class("col mx-auto") ]
+                , div [ class("col") ]
                     [ if model.profile /= Nothing then
                         Maybe.map4 (\gameId profile player2 cells ->
                             if player2 == Nothing && gameId /= profile
@@ -489,16 +488,16 @@ view model =
                             (model.activeGame |> Maybe.map .id)
                             (model.profile |> Maybe.map .uid)
                             (model.activeGame |> Maybe.map .player2)
-                            (model.activeGame |> Maybe.map .cells)
+                            model.activeGame
                         |> Maybe.withDefault empty
                     else
                         Maybe.map (boardElement Nothing Place playerToken)
-                            (model.activeGame |> Maybe.map .cells)
+                            model.activeGame
                         |> Maybe.withDefault empty
                     ]
                 ,  div [ class("col-3") ]
                     [ model.profile
-                        |> Maybe.map profileElement
+                        |> Maybe.map ( profileElement SelectActiveGame )
                         |> Maybe.withDefault empty
                     ]
                 ]

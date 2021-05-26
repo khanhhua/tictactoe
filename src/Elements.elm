@@ -3,7 +3,7 @@ module Elements exposing (..)
 import Html exposing (Html, button, div, h5, li, p, small, span, strong, text, ul)
 import Html.Attributes exposing (class, style, tabindex)
 import Html.Events exposing (onClick)
-import Models exposing (GameOverview, Profile)
+import Models exposing (Game, GameOverview, Profile)
 
 empty : Html msg
 empty = text ""
@@ -17,34 +17,61 @@ maybeElement : Maybe (Html msg) -> Html msg
 maybeElement e =
     e |> Maybe.withDefault empty
 
-boardElement : Maybe msg -> (Int -> Int -> msg) -> (String -> Html msg) -> List String -> Html msg
-boardElement onRequestToJoinGame onPlace cellRenderer cells =
-    div [ class("board mx-auto") ]
-        [ div []
-            ( cells
+opponentsElement : Maybe msg -> String -> Maybe String -> Maybe String -> Html msg
+opponentsElement onRequestToJoinGame player1 player2 activePlayer =
+    ul [ class "list-group mb-3" ]
+        ( onRequestToJoinGame
+        |> Maybe.map (\onRequestToJoinGame_ ->
+            [ li [ class "list-group-item" ]
+                [ span [ class "font-weight-bold" ] [ text "Player 1: " ]
+                , text player1
+                ]
+            , li [ class "list-group-item" ]
+                [ button [ onClick onRequestToJoinGame_, class "btn btn-primary d-block mx-auto mt-2" ]
+                    [ text "Join game!"
+                    ]
+                ]
+            ] )
+        |> Maybe.withDefault ( Maybe.map2 (\activePlayer_ player2_ ->
+            [ li [ [ "list-group-item", ( if activePlayer_ == player1 then "active-player" else "" ) ]
+                    |> String.join " "
+                    |> class
+                ]
+                [ span [ class "font-weight-bold" ] [ text "Player 1: " ]
+                , text player1
+                ]
+            , li [ [ "list-group-item", ( if activePlayer_ == player2_ then "active-player" else "" ) ]
+                      |> String.join " "
+                      |> class
+                      ]
+                [ span [ class "font-weight-bold" ] [ text "Player 2: " ]
+                , text player2_
+                ]
+            ]
+            ) activePlayer player2
+            |> Maybe.withDefault []
+        ) )
+
+boardElement : Maybe msg -> (Int -> Int -> msg) -> (String -> Html msg) -> Game -> Html msg
+boardElement onRequestToJoinGame onPlace cellRenderer game =
+    div [ class("board") ]
+        [ opponentsElement onRequestToJoinGame game.player1 game.player2 game.activePlayer
+        , div []
+            ( game.cells
             |> nPartition 3
             |> List.indexedMap (\y row ->
-                div [ class("row flex-grow-0") ]
+                div [ class("board-row flex-grow-0") ]
                     ( row |> List.indexedMap (\x name ->
-                    div [ class("col cell")
+                    div [ class("board-cell")
                         , onClick (onPlace x y)
                         ] [ cellRenderer name ] )
                     )
                 )
             )
-        , onRequestToJoinGame
-            |> Maybe.map (\onRequestToJoinGame_ ->
-                div []
-                    [ button [ onClick onRequestToJoinGame_, class "btn btn-primary d-block mx-auto mt-2" ]
-                        [ text "Join game!"
-                        ]
-                    ]
-            )
-            |> Maybe.withDefault empty
         ]
 
-profileElement : Profile -> Html msg
-profileElement p =
+profileElement : (String -> msg) -> Profile -> Html msg
+profileElement onSelectGame p =
     div [ class("media profile") ]
         [ span [ class("media-object align-self-start flex-shrink-0 text-uppercase mr-3") ]
             [ text (String.slice 0 1 p.uid)
@@ -53,6 +80,10 @@ profileElement p =
         then
             div [ class("media-body") ]
                 [ h5 [ class("mt-0") ] [ text ("Anonymous (" ++ p.uid ++ ")") ]
+                , button
+                    [ class "ml-auto btn btn-sm btn-link"
+                    , onClick (onSelectGame p.uid)
+                    ] [ text "My Game" ]
                 ]
         else
             div [ class("media-body") ]
@@ -66,8 +97,15 @@ playerListElement playerProfiles =
 
 gameListElement : (String -> msg) -> Maybe Profile -> List GameOverview -> Html msg
 gameListElement onSelectGame playerProfile gameList =
+    let
+        predicate : String -> Bool
+        predicate = playerProfile
+                |> Maybe.map (\profile -> (\gameId -> profile.uid /= gameId ) )
+                |> Maybe.withDefault (\a -> True)
+    in
     ul [ class("list-group") ]
         ( gameList
+        |> List.filter (.id >> predicate)
         |> List.map (\game ->
             li [ class("list-group-item list-group-item-action d-flex align-items-center")
                ]
