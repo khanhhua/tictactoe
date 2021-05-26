@@ -476,9 +476,9 @@ view model =
             ]
         , div [ class("container") ]
             [ div [ class("row") ]
-                [ div [ class("col-3") ]
+                [ div [ class("col-3 col-sm-12 mb-sm-3") ]
                     [ gameListElement SelectActiveGame model.profile model.gameList ]
-                , div [ class("col") ]
+                , div [ class("col col-sm-7") ]
                     [ if model.profile /= Nothing then
                         Maybe.map4 (\gameId profile player2 cells ->
                             if player2 == Nothing && gameId /= profile
@@ -495,7 +495,7 @@ view model =
                             model.activeGame
                         |> Maybe.withDefault empty
                     ]
-                ,  div [ class("col-3") ]
+                ,  div [ class("col-3 col-sm-5") ]
                     [ model.profile
                         |> Maybe.map ( profileElement SelectActiveGame )
                         |> Maybe.withDefault empty
