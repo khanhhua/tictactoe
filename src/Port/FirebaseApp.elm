@@ -43,6 +43,7 @@ type alias Model msg =
 
 type alias Invocation msg =
     { callee : String
+    , params : Value -- list of Value
     , returnDecoder : Decoder msg
     }
 
@@ -82,9 +83,9 @@ initialize app expectDecoder =
         call1 app "$$init" configValue expectDecoder
 
 
-invokeJson : String -> Decoder msg -> Invocation msg
-invokeJson callee toMessage =
-    Invocation callee toMessage
+invokeJson : String -> Value -> Decoder msg -> Invocation msg
+invokeJson callee params toMessage =
+    Invocation callee params toMessage
 
 
 listenJson : String -> Decoder msg -> Packet msg
@@ -123,12 +124,12 @@ firebaseUpdate msg model =
                     ( { model | returns = updatedListeners }, Task.perform (\() -> taskMsg_) ( Task.succeed () ) )
         PacketReceived ( channel, packet ) ->
             let
-                encodedExpectation = -- Debug.log "PacketReceived::encodedExpectation"
+                encodedExpectation =
                     model.subscriptions
                     |> List.filter (.channel >> (==) channel)
                     |> List.head
 
-                maybeTaskMsg = -- Debug.log "PacketReceived::maybeTaskMsg"
+                maybeTaskMsg =
                     (
                     case encodedExpectation of
                         Just serialized ->
@@ -142,8 +143,10 @@ firebaseUpdate msg model =
                 Nothing -> ( model, Cmd.none )
                 Just taskMsg_ ->
                     ( model, Task.perform (\() -> taskMsg_) ( Task.succeed () ) )
-        Call fbMsg ->
-            ( { model | returns = fbMsg :: model.returns }, Cmd.none )
+        Call invocation ->
+            ( { model | returns = invocation :: model.returns }
+            , firebaseOutput ( tagCallee invocation.callee invocation.params )
+            )
         Listen subscriptionMsg ->
             ( { model | subscriptions = subscriptionMsg :: model.subscriptions }, Cmd.none )
         StopListen channel ->
@@ -164,23 +167,12 @@ expect toMsg decoder =
 
 -- Functions
 
-call : FirebaseApp msg -> String -> Decoder msg -> Cmd msg
-call app fnName expectDecoder =
-    let
-        invocation : Invocation msg
-        invocation = invokeJson fnName expectDecoder
-    in
-    Cmd.batch
-        [ Task.perform (Call >> app.toMsg) (Task.succeed invocation)
-        , firebaseOutput ( tagCallee invocation.callee E.null )
-        ]
-
 listenOn : FirebaseApp msg -> String -> String -> Decoder msg -> Decoder msg -> Cmd msg
 listenOn app refPath eventType expectDecoder packetDecoder =
     let
         invocationMsg : Invocation msg
         invocationMsg = -- Debug.log "listenOn [invocationMsg]"
-            invokeJson "fbListenOn" expectDecoder
+            invokeJson "fbListenOn" ( E.list E.string [ refPath, eventType ] ) expectDecoder
 
         channel = refPath ++ ":" ++ eventType
 
@@ -190,43 +182,43 @@ listenOn app refPath eventType expectDecoder packetDecoder =
     Cmd.batch
         [ Task.perform ( Call >> app.toMsg ) ( Task.succeed invocationMsg )
         , Task.perform ( Listen >> app.toMsg ) ( Task.succeed subscriptionMsg )
-        , firebaseOutput ( tagChannelOn refPath eventType )
         ]
 
 listenOff : FirebaseApp msg -> String -> Decoder msg -> Cmd msg
 listenOff app channel expectDecoder =
     let
         invocationMsg : Invocation msg
-        invocationMsg = -- Debug.log "listenOff [invocationMsg]"
-            invokeJson "fbListenOff" expectDecoder
+        invocationMsg =
+            invokeJson "fbListenOff" ( E.list E.string [ channel ] ) expectDecoder
     in
     Cmd.batch
         [ Task.perform ( StopListen >> app.toMsg ) ( Task.succeed channel )
         , Task.perform ( Call >> app.toMsg ) ( Task.succeed invocationMsg )
-        , firebaseOutput ( tagChannelOff channel )
         ]
+
+call : FirebaseApp msg -> String -> Decoder msg -> Cmd msg
+call app fnName expectDecoder =
+    let
+        invocation : Invocation msg
+        invocation = invokeJson fnName E.null expectDecoder
+    in
+    Task.perform ( Call >> app.toMsg ) ( Task.succeed invocation )
 
 call1 : FirebaseApp msg -> String -> Value -> Decoder msg -> Cmd msg
 call1 app fnName param1 expectDecoder =
     let
         invocation : Invocation msg
-        invocation = invokeJson fnName expectDecoder
+        invocation = invokeJson fnName ( E.list identity [ param1 ] ) expectDecoder
     in
-    Cmd.batch
-        [ Task.perform (Call >> app.toMsg) (Task.succeed invocation)
-        , firebaseOutput ( tagCallee invocation.callee ( E.list identity [ param1 ] ) )
-        ]
+    Task.perform (Call >> app.toMsg) (Task.succeed invocation)
 
 call2 : FirebaseApp msg -> String -> Value -> Value -> Decoder msg -> Cmd msg
 call2 app fnName param1 param2 expectDecoder =
     let
         invocation : Invocation msg
-        invocation = invokeJson fnName expectDecoder
+        invocation = invokeJson fnName ( E.list identity [ param1, param2 ] ) expectDecoder
     in
-    Cmd.batch
-        [ Task.perform (Call >> app.toMsg) (Task.succeed invocation)
-        , firebaseOutput ( tagCallee invocation.callee ( E.list identity [ param1, param2 ] ) )
-        ]
+    Task.perform (Call >> app.toMsg) (Task.succeed invocation)
 
 getSubscriptions : FirebaseApp msg -> Model msg -> Sub (FirebaseMsg msg)
 getSubscriptions app =

@@ -1,6 +1,7 @@
 port module Main exposing (main)
 
 import Browser exposing (Document)
+import Browser.Navigation exposing (Key, replaceUrl)
 import Dict
 import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
@@ -11,19 +12,23 @@ import Html.Events exposing (onClick)
 import List exposing (range)
 import Logic exposing (checkWinner)
 import Models exposing (Game, GameOverview, Profile, decodeGame, decodeGameOverview, decodeProfile)
+import Process
 import Task
 
 import Port.FirebaseApp as F exposing (FirebaseMsg(..), firebaseUpdate)
+import Url exposing (Url, toString)
 
 port bootstrap : String -> Cmd msg
 
 
 main : Program () Model Msg
-main = Browser.element
+main = Browser.application
     { init = init
     , update = update
     , subscriptions = subscriptions
     , view = view
+    , onUrlRequest = (\_ -> NoOp)
+    , onUrlChange = UrlChanged
     }
 
 type alias Model =
@@ -37,10 +42,14 @@ type alias Model =
     , modalMessage : Maybe String
     , channels : List String
     , fbModel : F.Model Msg -- F.Model is only aware of Msg defined actions (serialization - deserialization)
+    , shareLinkCopied : Bool
+    , url : Url.Url
+    , key : Key
     }
 
 type Msg
     = NoOp
+    | UrlChanged Url.Url
     | Login
     | LoginComplete Profile
     | GotMyGameOverview (Maybe GameOverview)
@@ -64,7 +73,9 @@ type Msg
     | LeaveGame String
     | LeaveGameComplete Bool
     | FB (F.FirebaseMsg Msg)
-    | FirebaseInitialized
+    | FirebaseInitialized ( Maybe String )
+    | ShareLink String
+    | ShareLinkCopied Bool
 
 playerToken : String -> Html msg
 playerToken token =
@@ -83,8 +94,17 @@ firebaseInstance =
         , ( "databaseURL", "https://tictactoe-7d2d5-default-rtdb.europe-west1.firebasedatabase.app/" )
         ]
 
-init : () -> ( Model , Cmd Msg )
-init _ =
+parseGame : String -> Maybe String
+parseGame path =
+    case String.split "/" path of
+        [ _, "g", gameId ] -> Just gameId
+        _ -> Nothing
+
+init : () -> Url -> Key -> (Model, Cmd Msg )
+init _ url key =
+    let
+        cmd = F.initialize firebaseInstance ( url.path |> parseGame >> FirebaseInitialized >> F.expectEmpty )
+    in
     ( { busy = False
         , initialized = False
         , profile = Nothing
@@ -95,24 +115,42 @@ init _ =
         , modalMessage = Nothing
         , fbModel = F.init firebaseInstance
         , channels = []
+        , shareLinkCopied = False
+        , url = url
+        , key = key
         }
-    , F.initialize firebaseInstance ( F.expectEmpty FirebaseInitialized )
+    , cmd
     )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        FirebaseInitialized ->
+        FirebaseInitialized defaultGameId ->
             let
                 decodeDictToList = D.dict decodeGameOverview
                     |> D.andThen ( Dict.values >> D.succeed )
 
-                cmd = F.listenOn firebaseInstance "gameList" "value"
-                    ( F.expect DidOpenChannel D.string )
-                    ( F.expect GameListUpdated decodeDictToList )
+                updated = defaultGameId
+                    |> Maybe.map (\defaultGameId_ ->
+                        ( { model | activeGameId = Just defaultGameId_ }
+                        , Cmd.batch
+                             [ replaceUrl model.key "/"
+                             , F.listenOn firebaseInstance ( "games/" ++ defaultGameId_ ) "value"
+                                 ( F.expect DidOpenChannel D.string )
+                                 ( F.expect GameUpdated decodeGame )
+                             , F.listenOn firebaseInstance "gameList" "value"
+                                 ( F.expect DidOpenChannel D.string )
+                                 ( F.expect GameListUpdated decodeDictToList )
+                             ] )
+                        )
+                    |> Maybe.withDefault ( model
+                        , F.listenOn firebaseInstance "gameList" "value"
+                            ( F.expect DidOpenChannel D.string )
+                            ( F.expect GameListUpdated decodeDictToList )
+                        )
             in
-            ( { model | initialized = True }, cmd )
+                updated
         Login ->
             ( { model | busy = True },
             F.call firebaseInstance "fbLogin" ( F.expect LoginComplete decodeProfile )
@@ -442,6 +480,21 @@ update msg model =
                 }, cmd )
         LeaveGameComplete bool ->
             ( model, Cmd.none )
+        UrlChanged url ->
+            ( model, Cmd.none )
+        ShareLink gameId ->
+            let
+                sharedLink = ( toString model.url ) ++ "g/" ++ gameId
+            in
+            ( model, F.call1 firebaseInstance "cbCopy"
+                ( E.string sharedLink ) ( F.expect ShareLinkCopied D.bool )
+            )
+        ShareLinkCopied bool ->
+            ( { model | shareLinkCopied = bool }
+            , case bool of
+                True -> Task.perform (\() -> ShareLinkCopied False) ( Process.sleep 1200 )
+                False -> Cmd.none
+            )
         FB fbMsg ->
             let
                 ( updatedModel, fbCmd ) = firebaseUpdate fbMsg model.fbModel
@@ -456,71 +509,73 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.map FB (firebaseInstance.subscriptions model.fbModel)
 
-view : Model -> Html Msg
+view : Model -> Document Msg
 view model =
-    div []
-        [ nav [class "navbar navbar-expand-lg navbar-light bg-light mb-3"]
-            [ span [ class("navbar-brand") ] [ text "Tic-Tac-Toe" ]
-            , ul [ class("navbar-nav ml-auto") ]
-                [ li [ class("nav-item") ]
-                    [ case model.profile of
-                        Nothing ->
-                            button
-                                [ class("btn btn-primary")
-                                , onClick Login
-                                ]
-                                [ text "Login" ]
-                        _ -> empty
-                    ]
-                ]
-            ]
-        , div [ class("container") ]
-            [ div [ class("row") ]
-                [ div [ class("col-lg-3 col-md-12 mb-md-3") ]
-                    [ gameListElement SelectActiveGame model.profile model.gameList ]
-                , div [ class("col-lg col-md-7") ]
-                    [ if model.profile /= Nothing then
-                        Maybe.map4 (\gameId profile player2 cells ->
-                            if player2 == Nothing && gameId /= profile
-                            then boardElement (Just (RequestToJoinGame gameId)) Place playerToken cells
-                            else boardElement Nothing Place playerToken cells
-                        )
-                            (model.activeGame |> Maybe.map .id)
-                            (model.profile |> Maybe.map .uid)
-                            (model.activeGame |> Maybe.map .player2)
-                            model.activeGame
-                        |> Maybe.withDefault empty
-                    else
-                        Maybe.map (boardElement Nothing Place playerToken)
-                            model.activeGame
-                        |> Maybe.withDefault empty
-                    ]
-                ,  div [ class("col-lg-3 col-md-5") ]
-                    [ model.profile
-                        |> Maybe.map ( profileElement SelectActiveGame )
-                        |> Maybe.withDefault empty
-                    ]
-                ]
-            ]
-        , ( Maybe.map2 (\gameId requesterUid ->
-                requesterToastElement
-                    (AllowRequestToJoinGame gameId requesterUid)
-                    (DenyGame gameId requesterUid)
-                )
-                ( model.profile |> Maybe.map .uid )
-                ( model.requesterList |> List.head )
-            )
-            |> Maybe.withDefault empty
-        , Maybe.map4 (\message gameId profile owner ->
-            if profile == owner
-            then
-                gameoverModalElement message (Just StartNewGame) Nothing
-            else
-                gameoverModalElement message Nothing (Just (LeaveGame gameId))
-            )
-            model.modalMessage
-            (model.activeGame |> Maybe.map .id)
-            (model.profile |> Maybe.map .uid)
-            (model.activeGame |> Maybe.map .player1)
-            |> maybeElement
-        ]
+    { title = "Tic-Tac-Toe"
+    , body =
+         [ nav [class "navbar navbar-expand-lg navbar-light bg-light mb-3"]
+             [ span [ class("navbar-brand") ] [ text "Tic-Tac-Toe" ]
+             , ul [ class("navbar-nav ml-auto") ]
+                 [ li [ class("nav-item") ]
+                     [ case model.profile of
+                         Nothing ->
+                             button
+                                 [ class("btn btn-primary")
+                                 , onClick Login
+                                 ]
+                                 [ text "Login" ]
+                         _ -> empty
+                     ]
+                 ]
+             ]
+         , div [ class("container") ]
+             [ div [ class("row") ]
+                 [ div [ class("col-lg-3 col-md-12 mb-md-3") ]
+                     [ gameListElement SelectActiveGame model.profile model.gameList ]
+                 , div [ class("col-lg col-md-7") ]
+                     [ if model.profile /= Nothing then
+                         Maybe.map4 (\gameId profile player2 cells ->
+                             if player2 == Nothing && gameId /= profile
+                             then boardElement (Just (RequestToJoinGame gameId)) Place playerToken cells
+                             else boardElement Nothing Place playerToken cells
+                         )
+                             (model.activeGame |> Maybe.map .id)
+                             (model.profile |> Maybe.map .uid)
+                             (model.activeGame |> Maybe.map .player2)
+                             model.activeGame
+                         |> Maybe.withDefault empty
+                     else
+                         Maybe.map (boardElement Nothing Place playerToken)
+                             model.activeGame
+                         |> Maybe.withDefault empty
+                     ]
+                 ,  div [ class("col-lg-3 col-md-5") ]
+                     [ model.profile
+                         |> Maybe.map ( profileElement SelectActiveGame ShareLink model.shareLinkCopied )
+                         |> Maybe.withDefault empty
+                     ]
+                 ]
+             ]
+         , ( Maybe.map2 (\gameId requesterUid ->
+                 requesterToastElement
+                     (AllowRequestToJoinGame gameId requesterUid)
+                     (DenyGame gameId requesterUid)
+                 )
+                 ( model.profile |> Maybe.map .uid )
+                 ( model.requesterList |> List.head )
+             )
+             |> Maybe.withDefault empty
+         , Maybe.map4 (\message gameId profile owner ->
+             if profile == owner
+             then
+                 gameoverModalElement message (Just StartNewGame) Nothing
+             else
+                 gameoverModalElement message Nothing (Just (LeaveGame gameId))
+             )
+             model.modalMessage
+             (model.activeGame |> Maybe.map .id)
+             (model.profile |> Maybe.map .uid)
+             (model.activeGame |> Maybe.map .player1)
+             |> maybeElement
+         ]
+    }

@@ -2,6 +2,8 @@ import firebase from 'firebase/app';
 import 'firebase/database';
 import 'firebase/auth';
 
+import copy from 'copy-to-clipboard';
+
 export default (ports) => {
     function loop(action, state) { // We don't need this for application specific states. Maybe we need for subscription listeners
         return action.$$nextState || state;
@@ -119,32 +121,6 @@ const callbacks = {
         let $$return;
         try {
             const {user} = await firebase.auth().signInAnonymously();
-            console.log({user});
-
-            // const gameListItem = await firebase.database().ref(`gameList/${user.uid}`).get();
-            // if (!gameListItem.exists()) {
-            //     await firebase.database().ref(`gameList/${user.uid}`).set({
-            //         id: user.uid,
-            //         title: `${user.uid.substring(0, 9)}'s game`,
-            //     });
-            // }
-            // const game = await firebase.database().ref(`games/${user.uid}`).get();
-            // TODO issue command $$cmd $create
-            // if (!game.exists()) {
-            //     await firebase.database().ref(`games/${user.uid}`).set({
-            //         id: user.uid,
-            //         cells: '---------',
-            //         player1: user.uid,
-            //         activePlayer: user.uid,
-            //     });
-            // }
-            console.log(`Listening on players/${user.uid}/requests...`);
-            // TODO issue command $$listen
-            // firebase.database().ref(`players/${user.uid}/requests`).on('child_added', (snapshot) => {
-            //     const requesterUid = snapshot.val();
-            //     console.log('requesterUid', requesterUid);
-            //     app.ports.firebaseInput.send(['requester', requesterUid]);
-            // });
 
             $$return = tagReturn(user);
         } catch (e) {
@@ -285,6 +261,14 @@ const callbacks = {
 
         return {
             $$nextState: nextState,
+            ...tagReturn(true),
+        };
+    },
+    async cbCopy(state, text) {
+        copy(text);
+
+        return {
+            $$nextState: state,
             ...tagReturn(true),
         };
     }
