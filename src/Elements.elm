@@ -70,8 +70,8 @@ boardElement onRequestToJoinGame onPlace cellRenderer game =
             )
         ]
 
-profileElement : (String -> msg) -> Profile -> Html msg
-profileElement onSelectGame p =
+profileElement : (String -> msg) -> (String -> msg) -> Bool -> Profile -> Html msg
+profileElement onSelectGame onShareGame shareLinkCopied p =
     div [ class("media profile") ]
         [ span [ class("media-object align-self-start flex-shrink-0 text-uppercase mr-3") ]
             [ text (String.slice 0 1 p.uid)
@@ -84,6 +84,12 @@ profileElement onSelectGame p =
                     [ class "ml-auto btn btn-sm btn-link"
                     , onClick (onSelectGame p.uid)
                     ] [ text "My Game" ]
+                , if shareLinkCopied
+                then span [ class "btn btn-sm btn-link muted" ] [ text "Share Link Copied" ]
+                else button
+                    [ class "ml-auto btn btn-sm btn-link"
+                    , onClick (onShareGame p.uid)
+                    ] [ text "Share Link" ]
                 ]
         else
             div [ class("media-body") ]
