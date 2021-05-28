@@ -18,6 +18,9 @@
       "$game_id": {
         ".read": "true",
         ".write": "auth.uid === $game_id",
+        "winner": {
+          ".write": "auth.uid === data.parent().child('player2').val()"
+        },
         "cells": {
           ".write": "auth.uid === data.parent().child('player2').val()"
         },
