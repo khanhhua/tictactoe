@@ -74,13 +74,17 @@ boardElement onRequestToJoinGame onPlace cellRenderer game =
             |> List.indexedMap (\y row ->
                 div [ class("board-row flex-grow-0") ]
                     ( row |> List.indexedMap (\x name ->
-                    div ( [ class("board-cell") ]
-                        ++
-                        case onPlace of
-                            Just onPlace_ -> [ onClick (onPlace_ x y) ]
-                            Nothing -> []
+                        if name == "-" then
+                            div ( [ class("board-cell") ]
+                                ++
+                                case onPlace of
+                                    Just onPlace_ -> [ onClick (onPlace_ x y) ]
+                                    Nothing -> []
+                                )
+                                [ text " " ]
+                        else
+                            div [ class("board-cell") ] [ cellRenderer name ]
                         )
-                        [ cellRenderer name ] )
                     )
                 )
             )
