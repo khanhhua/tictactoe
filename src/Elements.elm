@@ -3,7 +3,7 @@ module Elements exposing (..)
 import Html exposing (Html, button, div, h5, li, p, small, span, strong, text, ul)
 import Html.Attributes exposing (class, style, tabindex)
 import Html.Events exposing (onClick)
-import Models exposing (Game, GameOverview, Profile)
+import Models exposing (Game, GameOverview, JoinResponse(..), Profile)
 
 empty : Html msg
 empty = text ""
@@ -51,6 +51,18 @@ opponentsElement onRequestToJoinGame player1 player2 activePlayer =
             ) activePlayer player2
             |> Maybe.withDefault []
         ) )
+
+requestedOpponentsElement : String -> Html msg
+requestedOpponentsElement player1 =
+    ul [ class "list-group mb-3" ]
+        [ li [ class "list-group-item" ]
+            [ span [ class "font-weight-bold" ] [ text "Player 1: " ]
+            , text player1
+            ]
+        , li [ class "list-group-item" ]
+            [ text "You have already requested to join"
+            ]
+        ]
 
 boardElement : Maybe msg -> (Int -> Int -> msg) -> (String -> Html msg) -> Game -> Html msg
 boardElement onRequestToJoinGame onPlace cellRenderer game =
@@ -135,9 +147,33 @@ requesterToastElement onAccept onCancel =
                     ]
                 ]
             , div [ class "toast-body" ]
-                [ p [] [ text "Some has requested to join your game" ]
+                [ p [] [ text "Someone has requested to join your game" ]
                 , button [ class "btn btn-primary btn-sm mx-auto", onClick onAccept ] [ text "Accept" ]
                 ]
+            ]
+        ]
+
+
+acknowledgeResponseToastElement : ( JoinResponse -> msg ) -> ( String -> msg ) -> JoinResponse -> Html msg
+acknowledgeResponseToastElement onAcknowledge onSelectActiveGame response =
+    div [ class "position-fixed top-0 right-0 p-3" ]
+        [ div [ class "toast", style "opacity" "1" ]
+            [ div [ class "toast-header" ]
+                [ small [ class "mr-auto" ] [ text "Few seconds ago" ]
+                , button [ class "btn btn-link btn-sm", onClick ( onAcknowledge response ) ]
+                    [ text "Close" ]
+                ]
+            , div [ class "toast-body" ]
+                ( case response of
+                    Accepted gameId ->
+                        [ p [] [ text "Your request has been accepted" ]
+                        , button [ class "btn btn-link btn-sm", onClick ( onSelectActiveGame gameId ) ]
+                            [ text "View Game" ]
+                        ]
+                    Rejected _ ->
+                        [ p [] [ text "Your request has been rejected" ]
+                        ]
+                )
             ]
         ]
 

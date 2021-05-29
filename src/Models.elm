@@ -24,6 +24,10 @@ type alias Game =
     , winner : Maybe String
     }
 
+type JoinResponse
+    = Accepted String
+    | Rejected String
+
 makeAnonProfile : String -> Profile
 makeAnonProfile uid = Profile uid True Nothing
 
