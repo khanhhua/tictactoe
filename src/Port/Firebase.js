@@ -130,6 +130,18 @@ const callbacks = {
 
         return $$return;
     },
+    async fbIsLoggedIn(state) {
+        let $$return;
+        const user = await new Promise(resolve => firebase.auth().onAuthStateChanged(resolve));
+        try {
+            $$return = tagReturn(user);
+        } catch (e) {
+            console.error(e);
+            $$return = tagError(e.message);
+        }
+
+        return $$return;
+    },
     async fbGetValueAt(state, firebasePath) {
         console.log(`fbGetValueAt ${firebasePath}...`);
 
