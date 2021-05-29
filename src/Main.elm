@@ -149,12 +149,28 @@ update msg model =
                              , F.listenOn firebaseInstance "gameList" "value"
                                  ( F.expect DidOpenChannel D.string )
                                  ( F.expect GameListUpdated decodeDictToList )
+                             , F.call firebaseInstance "fbIsLoggedIn"
+                                 ( F.expect (\profile ->
+                                     case profile of
+                                        Just profile_ -> LoginComplete profile_
+                                        Nothing -> NoOp
+                                     ) ( D.maybe decodeProfile )
+                                 )
                              ] )
                         )
                     |> Maybe.withDefault ( model
-                        , F.listenOn firebaseInstance "gameList" "value"
-                            ( F.expect DidOpenChannel D.string )
-                            ( F.expect GameListUpdated decodeDictToList )
+                        , Cmd.batch
+                            [ F.call firebaseInstance "fbIsLoggedIn"
+                                ( F.expect (\profile ->
+                                    case profile of
+                                        Just profile_ -> LoginComplete profile_
+                                        Nothing -> NoOp
+                                    ) ( D.maybe decodeProfile )
+                                )
+                            , F.listenOn firebaseInstance "gameList" "value"
+                                ( F.expect DidOpenChannel D.string )
+                                ( F.expect GameListUpdated decodeDictToList )
+                            ]
                         )
             in
                 updated
@@ -597,8 +613,8 @@ view model =
                              if 0 /= ( model.requestedList |> List.filter (gameId |> (==)) |> List.length )
                              then requestedOpponentsElement gameId
                              else if player2 == Nothing && gameId /= profile
-                             then boardElement (Just (RequestToJoinGame gameId)) Place playerToken cells
-                             else boardElement Nothing Place playerToken cells
+                             then boardElement (Just (RequestToJoinGame gameId)) Nothing playerToken cells
+                             else boardElement Nothing ( Just Place ) playerToken cells
                          )
                              (model.activeGame |> Maybe.map .id)
                              (model.profile |> Maybe.map .uid)
@@ -606,7 +622,7 @@ view model =
                              model.activeGame
                          |> Maybe.withDefault empty
                      else
-                         Maybe.map (boardElement Nothing Place playerToken)
+                         Maybe.map (boardElement Nothing Nothing playerToken)
                              model.activeGame
                          |> Maybe.withDefault empty
                      ]

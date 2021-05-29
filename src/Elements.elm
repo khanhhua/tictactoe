@@ -64,7 +64,7 @@ requestedOpponentsElement player1 =
             ]
         ]
 
-boardElement : Maybe msg -> (Int -> Int -> msg) -> (String -> Html msg) -> Game -> Html msg
+boardElement : Maybe msg -> Maybe (Int -> Int -> msg) -> (String -> Html msg) -> Game -> Html msg
 boardElement onRequestToJoinGame onPlace cellRenderer game =
     div [ class("board") ]
         [ opponentsElement onRequestToJoinGame game.player1 game.player2 game.activePlayer
@@ -74,9 +74,13 @@ boardElement onRequestToJoinGame onPlace cellRenderer game =
             |> List.indexedMap (\y row ->
                 div [ class("board-row flex-grow-0") ]
                     ( row |> List.indexedMap (\x name ->
-                    div [ class("board-cell")
-                        , onClick (onPlace x y)
-                        ] [ cellRenderer name ] )
+                    div ( [ class("board-cell") ]
+                        ++
+                        case onPlace of
+                            Just onPlace_ -> [ onClick (onPlace_ x y) ]
+                            Nothing -> []
+                        )
+                        [ cellRenderer name ] )
                     )
                 )
             )
