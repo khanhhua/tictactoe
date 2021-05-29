@@ -5,13 +5,13 @@ import Browser.Navigation exposing (Key, replaceUrl)
 import Dict
 import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
-import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement, requesterToastElement)
+import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement, requestedOpponentsElement, requesterToastElement, acknowledgeResponseToastElement)
 import Html exposing (Html, button, div, h1, h5, li, nav, p, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
 import List exposing (range)
 import Logic exposing (checkWinner)
-import Models exposing (Game, GameOverview, Profile, decodeGame, decodeGameOverview, decodeProfile)
+import Models exposing (Game, GameOverview, JoinResponse(..), Profile, decodeGame, decodeGameOverview, decodeProfile)
 import Process
 import Task
 
@@ -32,19 +32,21 @@ main = Browser.application
     }
 
 type alias Model =
-    { initialized : Bool
+    { fbModel : F.Model Msg -- F.Model is only aware of Msg defined actions (serialization - deserialization)
+    , channels : List String
+    , url : Url.Url
+    , key : Key
+    , initialized : Bool
     , busy : Bool
+    , modalMessage : Maybe String
     , profile : Maybe Profile
     , activeGameId : Maybe String
     , activeGame : Maybe Game
     , gameList : List GameOverview
     , requesterList : List String
-    , modalMessage : Maybe String
-    , channels : List String
-    , fbModel : F.Model Msg -- F.Model is only aware of Msg defined actions (serialization - deserialization)
+    , requestedList : List String
+    , responseList : List JoinResponse
     , shareLinkCopied : Bool
-    , url : Url.Url
-    , key : Key
     }
 
 type Msg
@@ -65,7 +67,9 @@ type Msg
     | StartNewGame
     | StartNewGameComplete Bool
     | RequestToJoinGame String
-    | RequestToJoinGameComplete Bool
+    | RequestToJoinGameComplete String
+    | Player2AllowedToJoin String String
+    | AcknowledgeGameJoinResponse JoinResponse
     | AllowRequestToJoinGame String String
     | AllowRequestToJoinGameComplete String String
     | DenyGame String String
@@ -76,6 +80,7 @@ type Msg
     | FirebaseInitialized ( Maybe String )
     | ShareLink String
     | ShareLinkCopied Bool
+    | Steps ( List Msg )
 
 playerToken : String -> Html msg
 playerToken token =
@@ -105,19 +110,21 @@ init _ url key =
     let
         cmd = F.initialize firebaseInstance ( url.path |> parseGame >> FirebaseInitialized >> F.expectEmpty )
     in
-    ( { busy = False
+    ( { fbModel = F.init firebaseInstance
+        , channels = []
+        , url = url
+        , key = key
+        , busy = False
         , initialized = False
         , profile = Nothing
         , activeGameId = Nothing
         , activeGame = Nothing
         , gameList = []
         , requesterList = []
+        , requestedList = []
+        , responseList = []
         , modalMessage = Nothing
-        , fbModel = F.init firebaseInstance
-        , channels = []
         , shareLinkCopied = False
-        , url = url
-        , key = key
         }
     , cmd
     )
@@ -399,15 +406,51 @@ update msg model =
                             playerId = E.string player2
                         in
                         F.call2 firebaseInstance "fbPushValue" refPath playerId
-                            ( F.expect RequestToJoinGameComplete D.bool )
+                            ( F.expect (\bool ->
+                                if bool
+                                then RequestToJoinGameComplete gameId
+                                else NoOp
+                            ) D.bool )
                     ) (model.profile |> Maybe.map .uid)
                     |> Maybe.withDefault Cmd.none
             in
             ( { model
             | activeGameId = Just gameId
             }, cmd )
-        RequestToJoinGameComplete result ->
-            ( model, Cmd.none )
+        RequestToJoinGameComplete gameId ->
+            let
+                refPath = "games/" ++ gameId ++ "/player2"
+                eventType = "value"
+                cmd = F.listenOn firebaseInstance refPath eventType
+                    ( F.expectEmpty NoOp )
+                    ( F.expect ( Player2AllowedToJoin gameId ) D.string )
+            in
+            ( { model | requestedList = gameId :: model.requestedList }
+            , cmd )
+        Player2AllowedToJoin gameId player2 -> -- gameId->player1
+            let
+                channel = "games/" ++ gameId ++ "/player2:value"
+                cmd = case model.profile |> Maybe.map .uid of
+                    Nothing -> Cmd.none
+                    _ -> F.listenOff firebaseInstance channel ( F.expectEmpty NoOp )
+            in
+            ( { model
+                | requestedList = model.requestedList |> List.filter ( (/=) gameId )
+                , responseList = model.profile
+                    |> Maybe.map .uid
+                    |> Maybe.map (\profile ->
+                            if profile == player2
+                            then ( Accepted gameId ) :: model.responseList
+                            else ( Rejected gameId ) :: model.responseList
+                        )
+                    |> Maybe.withDefault model.responseList
+                }
+            , cmd
+            )
+        AcknowledgeGameJoinResponse response ->
+            ( { model
+                | responseList = model.responseList |> List.filter ( (/=) response )
+            }, Cmd.none )
         AllowRequestToJoinGame gameId player2 ->
             let
                 updates = E.object
@@ -426,7 +469,6 @@ update msg model =
         AllowRequestToJoinGameComplete _ _ ->
             ( { model | requesterList = [] }, Cmd.none )
         GotRequestToJoinGame requesterUid ->
-            -- Debug.log ("GotRequestToJoinGame:" ++ requesterUid)
             ( { model
             | requesterList = requesterUid :: model.requesterList
             }, Cmd.none )
@@ -481,7 +523,7 @@ update msg model =
         LeaveGameComplete bool ->
             ( model, Cmd.none )
         UrlChanged url ->
-            ( model, Cmd.none )
+            ( { model | url = url }, Cmd.none )
         ShareLink gameId ->
             let
                 sharedLink = ( toString model.url ) ++ "g/" ++ gameId
@@ -495,6 +537,23 @@ update msg model =
                 True -> Task.perform (\() -> ShareLinkCopied False) ( Process.sleep 1200 )
                 False -> Cmd.none
             )
+        Steps msgList ->
+            let
+                nextMsg = msgList |> List.head
+                updatedMsgList = msgList |> List.tail
+
+                cmd1 = Maybe.map (\nextMsg_ ->
+                        Task.perform identity ( Task.succeed nextMsg_ )
+                    ) nextMsg
+                cmd2 = Maybe.map (\updated_ ->
+                        Task.perform identity ( Task.succeed ( Steps updated_ ) )
+                    ) updatedMsgList
+
+                cmd = [ cmd1, cmd2 ]
+                    |> List.filterMap identity
+                    |> Cmd.batch
+            in
+            ( model, cmd )
         FB fbMsg ->
             let
                 ( updatedModel, fbCmd ) = firebaseUpdate fbMsg model.fbModel
@@ -535,7 +594,9 @@ view model =
                  , div [ class("col-lg col-md-7") ]
                      [ if model.profile /= Nothing then
                          Maybe.map4 (\gameId profile player2 cells ->
-                             if player2 == Nothing && gameId /= profile
+                             if 0 /= ( model.requestedList |> List.filter (gameId |> (==)) |> List.length )
+                             then requestedOpponentsElement gameId
+                             else if player2 == Nothing && gameId /= profile
                              then boardElement (Just (RequestToJoinGame gameId)) Place playerToken cells
                              else boardElement Nothing Place playerToken cells
                          )
@@ -563,6 +624,21 @@ view model =
                  )
                  ( model.profile |> Maybe.map .uid )
                  ( model.requesterList |> List.head )
+             )
+             |> Maybe.withDefault empty
+         , ( Maybe.map2 (\_ response ->
+                acknowledgeResponseToastElement
+                    AcknowledgeGameJoinResponse
+                    (\gameId ->
+                        Steps
+                            [ AcknowledgeGameJoinResponse response
+                            , SelectActiveGame gameId
+                            ]
+                    )
+                    response
+                )
+                ( model.profile |> Maybe.map .uid )
+                ( model.responseList |> List.head )
              )
              |> Maybe.withDefault empty
          , Maybe.map4 (\message gameId profile owner ->
