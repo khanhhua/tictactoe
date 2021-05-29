@@ -132,7 +132,15 @@ const callbacks = {
     },
     async fbIsLoggedIn(state) {
         let $$return;
-        const user = await new Promise(resolve => firebase.auth().onAuthStateChanged(resolve));
+        const user = await new Promise(resolve => {
+            let unsubscribe;
+            const callback = function (user) {
+                unsubscribe();
+                resolve(user);
+            };
+
+            unsubscribe = firebase.auth().onAuthStateChanged(callback);
+        });
         try {
             $$return = tagReturn(user);
         } catch (e) {
