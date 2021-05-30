@@ -11,7 +11,7 @@
     "build:prod": "rimraf dist && webpack --config webpack.config.prod.js",
     "watch": "webpack --watch",
     "start": "webpack serve --port 8000",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "elm-test tests/TestLogic.elm"
   },
   "repository": {
     "type": "git",
@@ -40,5 +40,8 @@
     "webpack": "^5.33.2",
     "webpack-cli": "^4.6.0",
     "webpack-dev-server": "^3.11.2"
+  },
+  "devDependencies": {
+    "elm-test": "^0.19.1-revision7"
   }
 }
