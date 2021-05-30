@@ -70,7 +70,7 @@ boardElement onRequestToJoinGame onPlace cellRenderer game =
         [ opponentsElement onRequestToJoinGame game.player1 game.player2 game.activePlayer
         , div []
             ( game.cells
-            |> nPartition 3
+            |> nPartition game.size
             |> List.indexedMap (\y row ->
                 div [ class("board-row flex-grow-0") ]
                     ( row |> List.indexedMap (\x name ->

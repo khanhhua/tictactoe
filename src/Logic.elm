@@ -1,10 +1,22 @@
-module Logic exposing (checkWinner)
+module Logic exposing (makeNewGame, checkWinner)
 
 import Array as A exposing (Array)
+import Json.Encode as E exposing (Value)
 import List exposing (range)
 
-cellIndex : Int -> Int -> Int
-cellIndex x y = y * 3 + x
+makeNewGame : Int -> String -> String -> Value
+makeNewGame strideSize gameId activePlayer =
+    E.object
+        [ ( "id", E.string gameId )
+        , ( "player1", E.string gameId )
+        , ( "activePlayer", E.string activePlayer )
+        , ( "cells", E.string ( String.repeat ( strideSize * strideSize ) "-" ) )
+        , ( "winner", E.null )
+        , ( "size", E.int strideSize )
+        ]
+
+cellIndex : Int -> Int -> Int -> Int
+cellIndex strideSize x y = y * strideSize + x
 
 matcher : String -> (Maybe String, Bool) -> (Maybe String, Bool)
 matcher s ( curr, match ) =
@@ -16,31 +28,32 @@ matcher s ( curr, match ) =
             Just value -> value == s
     )
 
-checkColumnAt : Array String -> Int -> Bool
-checkColumnAt cells x =
+checkColumnAt : Int -> Array String -> Int -> Bool
+checkColumnAt strideSize cells  x =
     (range 0 2)
-        |> List.map (\y -> A.get ( cellIndex x y ) cells)
+        |> List.map (\y -> A.get ( cellIndex strideSize x y ) cells)
         |> List.filterMap identity
         |> List.foldl matcher ( Nothing, True )
         |> (\( _, match ) -> match)
 
-checkRowAt : Array String -> Int -> Bool
-checkRowAt cells y =
+checkRowAt : Int -> Array String -> Int -> Bool
+checkRowAt strideSize cells  y =
     (range 0 2)
-        |> List.map (\x -> A.get (cellIndex x y) cells)
+        |> List.map (\x -> A.get ( cellIndex strideSize x y) cells)
         |> List.filterMap identity
         |> List.foldl matcher ( Nothing, True )
         |> (\( _, match ) -> match)
 
-checkDiagonals : Array String -> Bool
-checkDiagonals cells =
+checkDiagonals : Int -> Array String -> Bool
+checkDiagonals strideSize cells  =
     let
+        stridedCellIndex = cellIndex strideSize
         nwse =
             (List.map2 (\x y -> (x, y))
                 (range 0 2)
                 (range 0 2)
             )
-            |> List.map (\(x, y) -> A.get (cellIndex x y) cells)
+            |> List.map (\(x, y) -> A.get (stridedCellIndex x y) cells)
             |> List.filterMap identity
             |> List.foldl matcher ( Nothing, True )
             |> (\( _, match ) -> match)
@@ -49,22 +62,27 @@ checkDiagonals cells =
                 (range 0 2)
                 ((range 0 2) |> List.reverse)
             )
-            |> List.map (\(x, y) -> A.get (cellIndex x y) cells)
+            |> List.map (\(x, y) -> A.get (stridedCellIndex x y) cells)
             |> List.filterMap identity
             |> List.foldl matcher ( Nothing, True )
             |> (\( _, match ) -> match)
     in
         nwse || swne
 
-checkWinner : List String -> ( Int, Int ) -> Maybe String
-checkWinner cells (x, y) =
+checkWinner : Int -> List String -> ( Int, Int ) -> Maybe String
+checkWinner strideSize cells  (x, y) =
     let
+        stridedCellIndex = cellIndex strideSize
+        stridedCheckColumnAt = checkColumnAt strideSize
+        stridedCheckRowAt = checkRowAt strideSize
+        stridedCheckDiagonals = checkDiagonals strideSize
+
         arr = A.fromList cells
-        winner = (A.get ( cellIndex x y ) arr)
+        winner = (A.get ( stridedCellIndex x y ) arr)
             |> Maybe.andThen (\s ->
                 if s == "-" then
                    Nothing
-                else if (checkColumnAt arr x) || (checkRowAt arr y) || (checkDiagonals arr) then
+                else if (stridedCheckColumnAt arr x) || (stridedCheckRowAt arr y) || (stridedCheckDiagonals arr) then
                     Just s
                 else
                     Nothing

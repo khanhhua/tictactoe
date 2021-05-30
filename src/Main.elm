@@ -5,12 +5,12 @@ import Browser.Navigation exposing (Key, replaceUrl)
 import Dict
 import Json.Encode as E
 import Json.Decode as D exposing (Decoder, Error, Value)
-import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement, requestedOpponentsElement, requesterToastElement, acknowledgeResponseToastElement)
+import Elements exposing (boardElement, empty, gameListElement, gameoverModalElement, maybeElement, profileElement
+    , requestedOpponentsElement, requesterToastElement, acknowledgeResponseToastElement)
 import Html exposing (Html, button, div, h1, h5, li, nav, p, span, text, ul)
 import Html.Attributes exposing (class)
 import Html.Events exposing (onClick)
-import List exposing (range)
-import Logic exposing (checkWinner)
+import Logic exposing (checkWinner, makeNewGame)
 import Models exposing (Game, GameOverview, JoinResponse(..), Profile, decodeGame, decodeGameOverview, decodeProfile)
 import Process
 import Task
@@ -64,7 +64,7 @@ type Msg
     | PlaceComplete Bool
     | GameUpdated Game
     | ShowModal String
-    | StartNewGame
+    | StartNewGame Int
     | StartNewGameComplete Bool
     | RequestToJoinGame String
     | RequestToJoinGameComplete String
@@ -201,12 +201,7 @@ update msg model =
                         )
                 game = model.profile
                     |> Maybe.map (\profile ->
-                        E.object
-                            [ ( "id", E.string profile.uid )
-                            , ( "cells", E.string "---------" )
-                            , ( "player1", E.string profile.uid )
-                            , ( "activePlayer", E.string profile.uid )
-                            ]
+                        makeNewGame 5 profile.uid profile.uid
                     )
 
                 cmd = ( Maybe.map3 (\uid gameListItem_ game_ ->
@@ -304,7 +299,7 @@ update msg model =
                     )
                 param = Maybe.map5 (\game token activePlayer player1 player2 ->
                         ( game.id
-                        , let key = y * 3 + x in
+                        , let key = y * game.size + x in
                             game.cells
                             |> List.indexedMap (\index s ->
                                 if (index == key) && (s == "-") then token
@@ -322,15 +317,16 @@ update msg model =
             case param of
                 Just (gameId, cells, activePlayer) ->
                     let
-                        winner = Maybe.andThen (\(player1, player2) ->
-                            case checkWinner cells (x, y) of
+                        winner = Maybe.andThen (\(player1, player2, strideSize) ->
+                            case checkWinner strideSize cells (x, y) of
                                 Just "1" -> Just player1
                                 Just "2" -> Just player2
                                 _ -> Nothing
                             )
-                                ( Maybe.map2 (\p1 p2 -> ( p1, p2 ) )
-                                    (model.activeGame |> Maybe.map .player1)
-                                    (model.activeGame |> Maybe.andThen .player2)
+                                ( Maybe.map3 (\p1 p2 strideSize -> ( p1, p2, strideSize ) )
+                                    ( model.activeGame |> Maybe.map .player1 )
+                                    ( model.activeGame |> Maybe.andThen .player2 )
+                                    ( model.activeGame |> Maybe.map .size )
                                 )
                         refPath = E.string ( "games/" ++ gameId )
                         value = E.object
@@ -385,7 +381,7 @@ update msg model =
             ( updatedModel, cmd )
         ShowModal message ->
             ( { model | modalMessage = Just message } , Cmd.none )
-        StartNewGame ->
+        StartNewGame strideSize ->
             let
                 maybeCmd =
                     Maybe.map5
@@ -394,13 +390,9 @@ update msg model =
                                 let
                                     activePlayer = if player2 == Nothing then owner else winner
                                     refPath = E.string ( "games/" ++ gameId )
-                                    value = E.object
-                                        [ ( "activePlayer", E.string activePlayer )
-                                        , ( "cells", E.string "---------" )
-                                        , ( "winner", E.null )
-                                        ]
+                                    value = makeNewGame strideSize gameId activePlayer
                                 in
-                                F.call2 firebaseInstance "fbUpdateValueAt" refPath  value
+                                F.call2 firebaseInstance "fbUpdateValueAt" refPath value
                                     ( F.expect StartNewGameComplete D.bool )
                             else
                                 Cmd.none
@@ -609,12 +601,12 @@ view model =
                      [ gameListElement SelectActiveGame model.profile model.gameList ]
                  , div [ class("col-lg col-md-7") ]
                      [ if model.profile /= Nothing then
-                         Maybe.map4 (\gameId profile player2 cells ->
+                         Maybe.map4 (\gameId profile player2 game ->
                              if 0 /= ( model.requestedList |> List.filter (gameId |> (==)) |> List.length )
                              then requestedOpponentsElement gameId
                              else if player2 == Nothing && gameId /= profile
-                             then boardElement (Just (RequestToJoinGame gameId)) Nothing playerToken cells
-                             else boardElement Nothing ( Just Place ) playerToken cells
+                             then boardElement (Just (RequestToJoinGame gameId)) Nothing playerToken game
+                             else boardElement Nothing ( Just Place ) playerToken game
                          )
                              (model.activeGame |> Maybe.map .id)
                              (model.profile |> Maybe.map .uid)
@@ -660,7 +652,7 @@ view model =
          , Maybe.map4 (\message gameId profile owner ->
              if profile == owner
              then
-                 gameoverModalElement message (Just StartNewGame) Nothing
+                 gameoverModalElement message (Just ( StartNewGame 5 ) ) Nothing
              else
                  gameoverModalElement message Nothing (Just (LeaveGame gameId))
              )
